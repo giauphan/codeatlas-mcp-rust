@@ -19,7 +19,7 @@ import {
 } from "../utils/pathUtils.js";
 import { jaccardSimilarity } from "../utils/mathUtils.js";
 import { getApiUrl } from "../utils/envUtils.js";
-import { takeByPriority } from "../utils/arrayUtils.js";
+import { takeByPriority, takeFromIterable } from "../utils/arrayUtils.js";
 import { checkAuth, logActivity } from "../services/authService.js";
 import {
   discoverProjectsAsync,
@@ -31,7 +31,8 @@ import {
   syncAnalysisToServer,
   getEpisodicMemoriesFromServer,
   inMemoryAnalysisCache,
-  AnalysisResultLocal
+  AnalysisResultLocal,
+  getResolvedApiKey
 } from "../services/projectService.js";
 import { saveDreamMemory, queryDreamMemories, DreamMemoryResult } from "../services/dreamingService.js";
 import { loadBrainContext, formatBrainContext } from "../services/brainContext.js";
@@ -507,7 +508,10 @@ export function registerTools(server: McpServer) {
       const nodeMap = createNodeLabelMap(loaded.analysis.graph.nodes);
 
       // ⚡ Bolt Optimization: Precompute links for matched nodes to avoid O(N*L) filtering inside map
-      const matchIds = new Set(topMatches.map((n) => n.id));
+      const matchIds = new Set<string>();
+      for (const n of topMatches) {
+        matchIds.add(n.id);
+      }
 
       const incomingLinksMap = new Map<string, Array<{ from: string, type: string }>>();
       const outgoingLinksMap = new Map<string, Array<{ to: string, type: string }>>();
@@ -560,9 +564,11 @@ export function registerTools(server: McpServer) {
         return { content: [{ type: "text" as const, text: "No analysis data found. Run 'analyze' tool first." }] };
       }
 
-      const searchRegex = new RegExp(escapeRegExp(filePath.replace(/\\/g, "/")), 'i');
+      // Match either separator without normalizing every node path.
+      const flexPattern = escapeRegExp(filePath.replace(/\\/g, "/")).replace(/\//g, "[\\\\/]");
+      const searchRegex = new RegExp(flexPattern, 'i');
       const matches = loaded.analysis.graph.nodes.filter((n) => {
-        const fp = (n.filePath || n.id).replace(/\\/g, "/");
+        const fp = n.filePath || n.id;
         return searchRegex.test(fp);
       });
 
@@ -580,7 +586,10 @@ export function registerTools(server: McpServer) {
       let filesEntries = Array.from(byFile.entries());
 
       // ⚡ Bolt Optimization: Precompute dependencies for matched nodes to avoid O(N*L) filtering inside map
-      const matchIds = new Set(matches.map((n) => n.id));
+      const matchIds = new Set<string>();
+      for (const n of matches) {
+        matchIds.add(n.id);
+      }
       const dependenciesMap = new Map<string, Array<{ to: string, type: string }>>();
 
       for (const l of links) {
@@ -1058,7 +1067,7 @@ export function registerTools(server: McpServer) {
       await logActivity(auth, "search_genome", { query: query.substring(0, 100), project, limit });
       try {
         const serverUrl = getApiUrl();
-        const apiKey = process.env.CODEATLAS_API_KEY;
+        const apiKey = getResolvedApiKey();
         if (!apiKey) throw new Error("CODEATLAS_API_KEY not set");
 
         const qs = new URLSearchParams({ query, limit: String(limit || 10) });
@@ -1066,6 +1075,7 @@ export function registerTools(server: McpServer) {
         const url = `${serverUrl.replace(/\/+$/, "")}/api/genome/search?${qs}`;
 
         const resp = await fetch(url, {
+          redirect: "error",
           headers: { "x-api-key": apiKey, "User-Agent": "codeatlas-enterprise/2.0" },
         });
         if (!resp.ok) throw new Error(`Genome search failed: ${resp.status} ${await resp.text()}`);
@@ -1092,11 +1102,12 @@ export function registerTools(server: McpServer) {
       await logActivity(auth, "get_gene", { geneId });
       try {
         const serverUrl = getApiUrl();
-        const apiKey = process.env.CODEATLAS_API_KEY;
+        const apiKey = getResolvedApiKey();
         if (!apiKey) throw new Error("CODEATLAS_API_KEY not set");
 
         const url = `${serverUrl.replace(/\/+$/, "")}/api/genome/gene/${encodeURIComponent(geneId)}`;
         const resp = await fetch(url, {
+          redirect: "error",
           headers: { "x-api-key": apiKey, "User-Agent": "codeatlas-enterprise/2.0" },
         });
         if (resp.status === 404) {
@@ -1127,7 +1138,7 @@ export function registerTools(server: McpServer) {
       await logActivity(auth, "scan_immune_genes", { problem: problem.substring(0, 100), project });
       try {
         const serverUrl = getApiUrl();
-        const apiKey = process.env.CODEATLAS_API_KEY;
+        const apiKey = getResolvedApiKey();
         if (!apiKey) throw new Error("CODEATLAS_API_KEY not set");
 
         const qs = new URLSearchParams({ problem });
@@ -1135,6 +1146,7 @@ export function registerTools(server: McpServer) {
         const url = `${serverUrl.replace(/\/+$/, "")}/api/genome/immune/context?${qs}`;
 
         const resp = await fetch(url, {
+          redirect: "error",
           headers: { "x-api-key": apiKey, "User-Agent": "codeatlas-enterprise/2.0" },
         });
         if (!resp.ok) throw new Error(`Immune scan failed: ${resp.status} ${await resp.text()}`);
@@ -1164,11 +1176,12 @@ export function registerTools(server: McpServer) {
       await logActivity(auth, "save_immune_gene", { problem: problem.substring(0, 50), failure: failure.substring(0, 50), project });
       try {
         const serverUrl = getApiUrl();
-        const apiKey = process.env.CODEATLAS_API_KEY;
+        const apiKey = getResolvedApiKey();
         if (!apiKey) throw new Error("CODEATLAS_API_KEY not set");
 
         const url = `${serverUrl.replace(/\/+$/, "")}/api/genome/immune`;
         const resp = await fetch(url, {
+          redirect: "error",
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": apiKey, "User-Agent": "codeatlas-enterprise/2.0" },
           body: JSON.stringify({ problem, failure, prevention, project }),
@@ -1500,7 +1513,7 @@ export function registerTools(server: McpServer) {
             flowLines.push(`    ${mid}("⚡ ${label}${fileSuffix}")`);
           }
 
-          if (entryPoints.includes(node) && !hasIncoming.has(node.id)) {
+          if (!hasIncoming.has(node.id)) {
             flowLines.push(`    class ${mid} entry`);
           } else if (seedNodes.has(node.id)) {
             flowLines.push(`    class ${mid} seed`);
@@ -1901,8 +1914,13 @@ export function registerTools(server: McpServer) {
         } catch { /* skip */ }
       }
 
+      const uniqueFiles = new Set<string>();
+      for (const r of results) {
+        uniqueFiles.add(r.file);
+      }
+
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ query, project: loaded.projectName, matchCount: results.length, truncated: results.length >= maxRes, files: [...new Set(results.map(r => r.file))], results: results.slice(0, maxRes) }, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ query, project: loaded.projectName, matchCount: results.length, truncated: results.length >= maxRes, files: [...uniqueFiles], results: results.slice(0, maxRes) }, null, 2) }],
       };
     }
   );
@@ -1964,9 +1982,9 @@ export function registerTools(server: McpServer) {
       }
 
       const maxRes = maxResults || 30;
-      const targetDetails = Array.from(targetIds).map(id => { const n = nodeMap.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
+      const targetDetails = Array.from(targetIds, id => { const n = nodeMap.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
 
-      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, targets: targetDetails, totalCallers: callers.size, maxDepth: maxD, callers: Array.from(callers.values()).slice(0, maxRes) }, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, targets: targetDetails, totalCallers: callers.size, maxDepth: maxD, callers: takeFromIterable(callers.values(), maxRes) }, null, 2) }] };
     }
   );
 
@@ -2017,9 +2035,9 @@ export function registerTools(server: McpServer) {
 
       const maxRes = maxResults || 30;
       const nodeMap2 = createNodeMap(nodes);
-      const sourceDetails = Array.from(sourceIds).map(id => { const n = nodeMap2.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
+      const sourceDetails = Array.from(sourceIds, id => { const n = nodeMap2.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
 
-      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, sources: sourceDetails, totalCallees: callees.size, maxDepth: maxD, callees: Array.from(callees.values()).slice(0, maxRes) }, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, sources: sourceDetails, totalCallees: callees.size, maxDepth: maxD, callees: takeFromIterable(callees.values(), maxRes) }, null, 2) }] };
     }
   );
 
@@ -2132,14 +2150,15 @@ export function registerTools(server: McpServer) {
       }
 
       const affectedFiles = new Set<string>();
-      for (const c of [...Array.from(callers.values()), ...Array.from(callees.values())]) if (c.filePath) affectedFiles.add(c.filePath);
+      for (const c of callers.values()) if (c.filePath) affectedFiles.add(c.filePath);
+      for (const c of callees.values()) if (c.filePath) affectedFiles.add(c.filePath);
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify({
           symbol, project: loaded.projectName,
           impact: { incomingDependents: callers.size, outgoingDependencies: callees.size, totalAffectedFiles: affectedFiles.size, affectedFiles: Array.from(affectedFiles), testFiles: Array.from(testFiles) },
-          callers: Array.from(callers.values()).slice(0, 20),
-          callees: Array.from(callees.values()).slice(0, 20),
+          callers: takeFromIterable(callers.values(), 20),
+          callees: takeFromIterable(callees.values(), 20),
           recommendation: callers.size > 10 ? "HIGH IMPACT" : callers.size > 0 ? "MEDIUM IMPACT" : "LOW IMPACT",
         }, null, 2) }],
       };
@@ -2475,7 +2494,7 @@ export function registerTools(server: McpServer) {
       const auth = await checkAuth();
       await logActivity(auth, "setup_second_brain", { client, autoPlugin });
 
-      const key = apiKey || process.env.CODEATLAS_API_KEY;
+      const key = apiKey || getResolvedApiKey();
       if (!key) return { content: [{ type: "text" as const, text: JSON.stringify({
         success: false, error: "CODEATLAS_API_KEY not set. Provide apiKey parameter or set env var."
       }, null, 2) }] };
@@ -2645,7 +2664,7 @@ def register(ctx):
     async () => {
       const auth = await checkAuth();
       const results: any = {
-        apiKey: process.env.CODEATLAS_API_KEY ? "set" : "not_set",
+        apiKey: getResolvedApiKey() ? "set" : "not_set",
         apiUrl: process.env.CODEATLAS_API_URL || null,
         hermes: {},
         claude: {},
@@ -2832,12 +2851,14 @@ def register(ctx):
 
       // Cloud connectivity
       try {
-        const apiUrl = process.env.CODEATLAS_API_URL;
-        if (!apiUrl) {
+        const configuredUrl = process.env.CODEATLAS_API_URL;
+        if (!configuredUrl) {
           results.cloud = "not_configured";
         } else {
+          const apiUrl = getApiUrl();
           const resp = await fetch(`${apiUrl}/api/genome/search?limit=1`, {
-            headers: { "x-api-key": process.env.CODEATLAS_API_KEY || "", "User-Agent": "codeatlas-enterprise/2.0" },
+            redirect: "error",
+            headers: { "x-api-key": getResolvedApiKey() || "", "User-Agent": "codeatlas-enterprise/2.0" },
           });
           results.cloud = resp.ok ? "reachable" : `error_${resp.status}`;
         }

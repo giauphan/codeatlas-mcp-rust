@@ -11,6 +11,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as readline from "readline";
+import { getResolvedApiKey } from "../services/projectService.js";
+import { getApiUrl } from "../utils/envUtils.js";
 import { checkSpawnResult } from "../utils/processUtils.js";
 import {
   getHomePath,
@@ -59,32 +61,35 @@ export function ask(query: string): Promise<string> {
 }
 
 export async function cloudFetch(method: string, path_: string, body?: any): Promise<{ ok: boolean; status: number; data: any }> {
-  if (!API_URL) {
+  if (!process.env.CODEATLAS_API_URL) {
     return { ok: false, status: 0, data: { error: "CODEATLAS_API_URL not set" } };
   }
-  const url = `${API_URL.replace(/\/+$/, "")}${path_}`;
   const headers: Record<string, string> = {
     "User-Agent": "codeatlas-enterprise-cli/2.0",
     "Content-Type": "application/json",
   };
-  const apiKey = process.env.CODEATLAS_API_KEY;
+  const apiKey = getResolvedApiKey();
   if (apiKey) headers["x-api-key"] = apiKey;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
+    const url = `${getApiUrl()}${path_}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    timeoutId = setTimeout(() => controller.abort(), 6000);
     const resp = await fetch(url, {
+      redirect: "error",
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
     let data: any;
     try { data = await resp.json(); } catch { data = await resp.text(); }
     return { ok: resp.ok, status: resp.status, data };
   } catch (err: any) {
     if (err.name === "AbortError") return { ok: false, status: 0, data: { error: "Timeout" } };
     return { ok: false, status: 0, data: { error: err.message || "Network error" } };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -253,10 +258,24 @@ export function checkCodeatlasSetup(projectDir: string): CodeatlasSetupInfo {
   }
   const agentsDir = path.join(projectDir, ".claude", "agents");
   let agentCount = 0;
-  if (fs.existsSync(agentsDir)) { try { agentCount = fs.readdirSync(agentsDir).filter((x: string) => x.endsWith(".md")).length; } catch {} }
+  if (fs.existsSync(agentsDir)) {
+    try {
+      const entries = fs.readdirSync(agentsDir);
+      for (const e of entries) {
+        if (e.endsWith(".md")) agentCount++;
+      }
+    } catch {}
+  }
   // Alternative agent location
   const agentsDir2 = path.join(projectDir, ".agents", "agents");
-  if (agentCount === 0 && fs.existsSync(agentsDir2)) { try { agentCount = fs.readdirSync(agentsDir2).filter((x: string) => x.endsWith(".md")).length; } catch {} }
+  if (agentCount === 0 && fs.existsSync(agentsDir2)) {
+    try {
+      const entries = fs.readdirSync(agentsDir2);
+      for (const e of entries) {
+        if (e.endsWith(".md")) agentCount++;
+      }
+    } catch {}
+  }
 
   // Rule file per active agent
   const agent = detectActiveAgent(projectDir);
@@ -288,7 +307,17 @@ export function checkCodeatlasSetup(projectDir: string): CodeatlasSetupInfo {
 
 export function listProjectDirs(): { connected: ProjectDirEntry[]; newDirs: ProjectDirEntry[] } {
   const raw = process.env.CODEATLAS_PROJECT_DIRS || process.env.CODEATLAS_PROJECT_DIR || "";
-  const connectedSet = new Set(raw.split(",").map(s => s.trim()).filter(Boolean).map(s => path.resolve(s)));
+
+  const connectedSet = new Set<string>();
+  if (raw) {
+    for (const s of raw.split(",")) {
+      const trimmed = s.trim();
+      if (trimmed) {
+        connectedSet.add(path.resolve(trimmed));
+      }
+    }
+  }
+
   // Always include cwd as connected if it's a git project
   const cwd = path.resolve(process.cwd());
   if (fs.existsSync(path.join(cwd, ".git")) || fs.existsSync(path.join(cwd, "package.json"))) connectedSet.add(cwd);
@@ -317,8 +346,20 @@ export function listProjectDirs(): { connected: ProjectDirEntry[]; newDirs: Proj
     return { dir, name: path.basename(dir), isGit, branch, codeatlasSetup: checkCodeatlasSetup(dir) };
   }
 
-  const connected: ProjectDirEntry[] = [...connectedSet].filter(d => fs.existsSync(d)).map(toEntry);
-  const newDirs: ProjectDirEntry[] = candidates.filter(c => !connectedSet.has(path.resolve(c))).map(toEntry);
+  const connected: ProjectDirEntry[] = [];
+  for (const d of connectedSet) {
+    if (fs.existsSync(d)) {
+      connected.push(toEntry(d));
+    }
+  }
+
+  const newDirs: ProjectDirEntry[] = [];
+  for (const c of candidates) {
+    if (!connectedSet.has(path.resolve(c))) {
+      newDirs.push(toEntry(c));
+    }
+  }
+
   return { connected, newDirs };
 }
 
@@ -411,7 +452,9 @@ export function checkFeaturesDiff(): {
   if (fs.existsSync(adrDir)) {
     try {
       const entries = fs.readdirSync(adrDir, { recursive: true });
-      adrCount = entries.filter((e: any) => typeof e === "string" && e.endsWith(".md")).length;
+      for (const e of entries) {
+        if (typeof e === "string" && e.endsWith(".md")) adrCount++;
+      }
     } catch {}
   }
 
@@ -443,7 +486,7 @@ export function checkFeaturesDiff(): {
     astParsers: ["TypeScript", "JavaScript", "Python", "PHP"],
     adrCount,
     localMode: !process.env.CODEATLAS_API_URL,
-    cloudSync: Boolean(process.env.CODEATLAS_API_URL && process.env.CODEATLAS_API_KEY),
+    cloudSync: Boolean(process.env.CODEATLAS_API_URL && getResolvedApiKey()),
     connectedClients
   };
 }
@@ -608,7 +651,7 @@ export async function cmdDoctor(): Promise<void> {
 
   // 4. Environment & Cloud Services
   console.log(`\n${bold("4. Environment & Cloud Services")}`);
-  const hasApiKey = Boolean(process.env.CODEATLAS_API_KEY);
+  const hasApiKey = Boolean(getResolvedApiKey());
   console.log(`  ${hasApiKey ? ok() : warn()} CODEATLAS_API_KEY: ${hasApiKey ? "Set" : "not set (local mode only)"}`);
   countCheck(hasApiKey ? "ok" : "warn");
 
@@ -789,7 +832,7 @@ export async function cmdBrainContext(): Promise<void> {
   const project = process.env.CODEATLAS_PROJECT || (cwd ? path.basename(cwd) : "default");
   const limit = payload.limit || 5;
 
-  if (!process.env.CODEATLAS_API_URL || !process.env.CODEATLAS_API_KEY) {
+  if (!process.env.CODEATLAS_API_URL || !getResolvedApiKey()) {
     // Silently exit if not configured
     process.exit(0);
   }
@@ -819,7 +862,7 @@ export async function cmdBrainSave(): Promise<void> {
     }
   }
 
-  if (!process.env.CODEATLAS_API_URL || !process.env.CODEATLAS_API_KEY) {
+  if (!process.env.CODEATLAS_API_URL || !getResolvedApiKey()) {
     // Silently exit if not configured
     process.exit(0);
   }

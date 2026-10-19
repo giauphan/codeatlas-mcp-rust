@@ -1,4 +1,5 @@
 import { queryDreamMemories, type DreamMemoryResult } from "./dreamingService.js";
+import { getResolvedApiKey } from "./projectService.js";
 import { getApiUrl } from "../utils/envUtils.js";
 
 const ALLOWED_TYPES = new Set(["MISTAKE", "PREFERENCE", "KNOWLEDGE", "PATTERN", "SESSION_SUMMARY"]);
@@ -65,36 +66,38 @@ export function filterGenesByRelevance(
     (/\b(ast|parse|parser)\b/.test(normalizedQuery)) &&
     (normalizedQuery.includes("javascript") || normalizedQuery.includes("typescript") || normalizedQuery.includes("codeatlas"));
 
-  const scoredGenes = genes
-    .filter((gene) => {
-      const geneText = `${gene.name} ${gene.description}`.toLowerCase();
-      if (isAstParserQuery && (geneText.includes("pygount") || geneText.includes("lines of code") || geneText.includes("comment-to-code"))) {
-        return false;
-      }
-      return true;
-    })
-    .map((gene) => {
-      const name = gene.name.toLowerCase();
-      const description = gene.description.toLowerCase();
-      const geneText = `${name} ${description}`;
-      let score = 0;
+  // Score and filter in one pass, normalizing each field once.
+  const scoredGenes: Array<{ gene: typeof genes[number]; score: number }> = [];
 
-      if (queryWords.length > 1 && geneText.includes(normalizedQuery)) {
-        score += 3;
-      }
+  for (const gene of genes) {
+    const name = gene.name.toLowerCase();
+    const description = gene.description.toLowerCase();
+    const geneText = `${name} ${description}`;
 
-      for (const word of queryWords) {
-        if (name.includes(word)) {
-          score += 2;
-        } else if (description.includes(word)) {
-          score += 1;
-        }
-      }
+    if (isAstParserQuery && (geneText.includes("pygount") || geneText.includes("lines of code") || geneText.includes("comment-to-code"))) {
+      continue;
+    }
 
-      return { gene, score };
-    })
-    .filter(({ score }) => score >= minRelevanceScore)
-    .sort((a, b) => b.score - a.score);
+    let score = 0;
+
+    if (queryWords.length > 1 && geneText.includes(normalizedQuery)) {
+      score += 3;
+    }
+
+    for (const word of queryWords) {
+      if (name.includes(word)) {
+        score += 2;
+      } else if (description.includes(word)) {
+        score += 1;
+      }
+    }
+
+    if (score >= minRelevanceScore) {
+      scoredGenes.push({ gene, score });
+    }
+  }
+
+  scoredGenes.sort((a, b) => b.score - a.score);
 
   return scoredGenes.map(({ gene }) => gene);
 }
@@ -158,6 +161,7 @@ export function formatBrainContext(
 
 async function fetchJson(url: string, apiKey: string): Promise<any> {
   const resp = await fetch(url, {
+    redirect: "error",
     headers: { "x-api-key": apiKey, "User-Agent": "codeatlas-enterprise/2.0" },
   });
   if (!resp.ok) {
@@ -171,7 +175,7 @@ export async function loadBrainContext(input: BrainContextInput): Promise<BrainC
   const project = input.project || process.env.CODEATLAS_PROJECT;
   const limit = Math.min(Math.max(input.limit ?? 5, 1), 10);
   const serverUrl = getApiUrl();
-  const apiKey = process.env.CODEATLAS_API_KEY;
+  const apiKey = getResolvedApiKey();
 
   const dreams = await queryDreamMemories({ query, project, limit }).catch(() => [] as DreamMemoryResult[]);
 
