@@ -16,6 +16,11 @@ describe("CLI command routing", () => {
     assert.equal(classifyCommand(["node", "codeatlas"]), "mcp");
   });
 
+  it("routes help flags to the CLI instead of MCP startup", () => {
+    assert.equal(classifyCommand(["node", "codeatlas", "--help"]), "cli");
+    assert.equal(classifyCommand(["node", "codeatlas", "-h"]), "cli");
+  });
+
   it("updates the globally installed npm package", () => {
     const command = getNpmUpdateCommand();
     assert.equal(command.command, "npm");

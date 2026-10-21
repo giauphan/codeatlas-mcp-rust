@@ -58,8 +58,9 @@ export type CommandRoute = "cli" | "mcp" | "unknown";
 
 export function classifyCommand(argv: string[]): CommandRoute {
   const cmd = argv[2];
-  if (!cmd || cmd.startsWith("--")) return "mcp";
-  return CLI_COMMANDS.has(cmd) ? "cli" : "unknown";
+  if (!cmd) return "mcp";
+  if (CLI_COMMANDS.has(cmd)) return "cli";
+  return cmd.startsWith("--") ? "mcp" : "unknown";
 }
 
 export interface NpmUpdateCommand {
