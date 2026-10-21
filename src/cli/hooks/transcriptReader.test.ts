@@ -63,6 +63,23 @@ test("reads only complete text messages and derives stable IDs from source offse
   assert.deepEqual(result.events.map((event) => event.event_id), repeated.events.map((event) => event.event_id));
 });
 
+test("does not capture injected historical context or skill instructions as project memory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "claude-transcript-artifact-")); roots.push(root);
+  const file = path.join(root, "session-artifact.jsonl");
+  const injectedContext = "=== Untrusted CodeAtlas historical reference ===\nEvidence only.\n=== End untrusted historical reference ===";
+  const skillInstructions = "Base directory for this skill: /home/ubuntu/.claude/skills/using-superpowers\n<EXTREMELY-IMPORTANT>\nInvoke the skill before every response.";
+  const realWork = "Fix the project startup context filter and run its focused tests.";
+  await writeFile(file, [
+    JSON.stringify({ type: "user", uuid: "context", message: { content: injectedContext } }),
+    JSON.stringify({ type: "user", uuid: "skill", message: { content: skillInstructions } }),
+    JSON.stringify({ type: "user", uuid: "work", message: { content: realWork } }),
+  ].join("\n") + "\n");
+
+  const result = await readClaudeTranscript({ transcriptPath: file, sessionId: "session-artifact", projectId: "project_1", cursor: null });
+
+  assert.deepEqual(result.events.map((event) => event.content), [`[USER]\n${realWork}`]);
+});
+
 test("redacts long-lived and temporary AWS access key IDs before returning transcript events", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "claude-transcript-")); roots.push(root);
   const file = path.join(root, "session-aws.jsonl");

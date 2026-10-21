@@ -1041,10 +1041,27 @@ export async function cmdBrainContext(): Promise<void> {
     await new Promise<void>((resolve, reject) => process.stdout.write(`${hostOutput}\n`, (error) => error ? reject(error) : resolve()));
     failureStage = "cache_commit";
     await commitContextPacket(packetInput, decision.contentHash);
+    writeContextLoadStatus({
+      projectId: identity.project_id,
+      sessionId,
+      eventName: hookEventName,
+      sourceCount: Array.isArray(result.checkpoint?.source_event_ids) ? result.checkpoint.source_event_ids.length : 0,
+    });
     report({ kind: "load", status: "injected", reason: "context_available", trace_id: traceId, project_id: identity.project_id, packet_chars: packet.length, injected: true, readable: true });
   } catch {
     report({ kind: "load", status: "error", reason: failureStage, trace_id: traceId });
   }
+}
+
+function writeContextLoadStatus(input: { projectId: string; sessionId: string; eventName: "SessionStart" | "UserPromptSubmit"; sourceCount: number }): void {
+  try {
+    const directory = path.join(os.homedir(), ".codeatlas");
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const file = path.join(directory, "context-load-status.json");
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify({ status: "injected", project_id: input.projectId, session_id: input.sessionId, event: input.eventName, source_count: input.sourceCount })}\n`, { mode: 0o600 });
+    fs.renameSync(temp, file);
+  } catch { /* A visible receipt must never make the host hook fail. */ }
 }
 
 function reportMemoryPipelineEvent(event: { kind: "save" | "load"; status: string; reason: string; trace_id: string; project_id?: string; packet_chars?: number; duration_ms?: number; capture_received?: boolean; bootstrap_attempt?: boolean; injected?: boolean; readable?: boolean }): void {

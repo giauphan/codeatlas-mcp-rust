@@ -418,6 +418,14 @@ describe("Claude hook event decoding", () => {
       assert.ok(pipelineEvents.some((event) => event.bootstrap_attempt === true && event.injected === true && event.readable === true && Number.isFinite(event.duration_ms)));
       assert.doesNotMatch(JSON.stringify(pipelineEvents), /Continue the parser fix|compatibility path intact/);
       assert.match(first.stderr, /load_status=injected/);
+      const loadStatus = JSON.parse(fs.readFileSync(path.join(home, ".codeatlas", "context-load-status.json"), "utf8"));
+      assert.deepStrictEqual(loadStatus, {
+        status: "injected",
+        project_id: "project_fixture",
+        session_id: "session-context",
+        event: "UserPromptSubmit",
+        source_count: 1,
+      });
       const replay = await runHook();
       assert.equal(replay.code, 0, replay.stderr);
       assert.equal(replay.stdout, "");
