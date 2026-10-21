@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as child_process from "child_process";
+import { randomUUID } from "node:crypto";
 import {
   getHomePath,
   getHermesConfigPath,
@@ -19,7 +20,7 @@ import {
 } from "../utils/pathUtils.js";
 import { jaccardSimilarity } from "../utils/mathUtils.js";
 import { getApiUrl } from "../utils/envUtils.js";
-import { takeByPriority, takeFromIterable } from "../utils/arrayUtils.js";
+import { takeByPriority } from "../utils/arrayUtils.js";
 import { checkAuth, logActivity } from "../services/authService.js";
 import {
   discoverProjectsAsync,
@@ -36,6 +37,8 @@ import {
 } from "../services/projectService.js";
 import { saveDreamMemory, queryDreamMemories, DreamMemoryResult } from "../services/dreamingService.js";
 import { loadBrainContext, formatBrainContext } from "../services/brainContext.js";
+import { resolveProjectIdentity } from "../services/projectIdentity.js";
+import { resolveExecutable } from "../utils/commandPath.js";
 import { routeTask } from "../cli/taskRouter.js";
 import { CodeAnalyzer } from "../analyzer/parser.js";
 import { SecurityScanner } from "../securityScanner.js";
@@ -49,6 +52,13 @@ const CONFIG_FILES_ENTRIES = Object.entries({ tsconfig: "tsconfig.json", eslint:
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolveMemoryToolIdentity(project?: string, projectId?: string) {
+  const suppliedPath = project && fs.existsSync(path.resolve(project)) ? path.resolve(project) : undefined; // NOSONAR S6549: this local existence check only selects workspace identity; it never exposes its result to the caller.
+  const workspacePath = suppliedPath ?? process.env.CODEATLAS_PROJECT_DIR ?? process.cwd();
+  const displayName = suppliedPath ? process.env.CODEATLAS_PROJECT : project ?? process.env.CODEATLAS_PROJECT;
+  return resolveProjectIdentity(workspacePath, projectId, displayName);
 }
 
 // ⚡ Bolt Optimization: Use explicit for-loops to instantiate Maps/Sets to avoid the
@@ -508,10 +518,7 @@ export function registerTools(server: McpServer) {
       const nodeMap = createNodeLabelMap(loaded.analysis.graph.nodes);
 
       // ⚡ Bolt Optimization: Precompute links for matched nodes to avoid O(N*L) filtering inside map
-      const matchIds = new Set<string>();
-      for (const n of topMatches) {
-        matchIds.add(n.id);
-      }
+      const matchIds = new Set(topMatches.map((n) => n.id));
 
       const incomingLinksMap = new Map<string, Array<{ from: string, type: string }>>();
       const outgoingLinksMap = new Map<string, Array<{ to: string, type: string }>>();
@@ -564,11 +571,9 @@ export function registerTools(server: McpServer) {
         return { content: [{ type: "text" as const, text: "No analysis data found. Run 'analyze' tool first." }] };
       }
 
-      // Match either separator without normalizing every node path.
-      const flexPattern = escapeRegExp(filePath.replace(/\\/g, "/")).replace(/\//g, "[\\\\/]");
-      const searchRegex = new RegExp(flexPattern, 'i');
+      const searchRegex = new RegExp(escapeRegExp(filePath.replace(/\\/g, "/")), 'i');
       const matches = loaded.analysis.graph.nodes.filter((n) => {
-        const fp = n.filePath || n.id;
+        const fp = (n.filePath || n.id).replace(/\\/g, "/");
         return searchRegex.test(fp);
       });
 
@@ -586,10 +591,7 @@ export function registerTools(server: McpServer) {
       let filesEntries = Array.from(byFile.entries());
 
       // ⚡ Bolt Optimization: Precompute dependencies for matched nodes to avoid O(N*L) filtering inside map
-      const matchIds = new Set<string>();
-      for (const n of matches) {
-        matchIds.add(n.id);
-      }
+      const matchIds = new Set(matches.map((n) => n.id));
       const dependenciesMap = new Map<string, Array<{ to: string, type: string }>>();
 
       for (const l of links) {
@@ -870,13 +872,15 @@ export function registerTools(server: McpServer) {
       importance: z.number().min(1).max(10).optional().describe("Importance level from 1 (low) to 10 (critical). Defaults to 5."),
       session_id: z.string().max(255).optional().describe("Optional session identifier for grouping related memories"),
       project: z.string().max(255).optional().describe("Optional project name to associate this memory with"),
+      project_id: z.string().max(255).optional().describe("Optional canonical project ID; normally resolved from the workspace"),
       scope: z.string().max(500).optional().describe("Optional hierarchical feature scope, e.g. auth/login or Auth/Login. Lowercase recommended for consistency."),
       tags: z.array(z.string().max(100)).max(100).optional().describe("Optional tags for filtering related memories"),
       related_ids: z.array(z.string().max(100)).max(100).optional().describe("Optional IDs of related dream memories or code entities"),
     },
-    async ({ memory_type, content, importance, session_id, project, scope, tags, related_ids }: { memory_type: "MISTAKE" | "PREFERENCE" | "KNOWLEDGE" | "PATTERN" | "SESSION_SUMMARY"; content: string; importance?: number; session_id?: string; project?: string; scope?: string; tags?: string[]; related_ids?: string[] }) => {
+    async ({ memory_type, content, importance, session_id, project, project_id, scope, tags, related_ids }: { memory_type: "MISTAKE" | "PREFERENCE" | "KNOWLEDGE" | "PATTERN" | "SESSION_SUMMARY"; content: string; importance?: number; session_id?: string; project?: string; project_id?: string; scope?: string; tags?: string[]; related_ids?: string[] }) => {
       const auth = await checkAuth();
-      await logActivity(auth, "save_dream_memory", { memory_type, content: content.substring(0, 100), importance, session_id, project, scope, tags, related_ids });
+      const identity = resolveMemoryToolIdentity(project, project_id);
+      await logActivity(auth, "save_dream_memory", { memory_type, content_chars: content.length, importance, session_id, project: identity.project, project_id: identity.project_id, scope, tags, related_ids });
 
       try {
         const result = await saveDreamMemory({
@@ -884,7 +888,10 @@ export function registerTools(server: McpServer) {
           content,
           importance: importance || 5,
           session_id,
-          project,
+          project: identity.project,
+          project_id: identity.project_id,
+          display_name: identity.project,
+          workspace_path: identity.workspace_path,
           scope,
           tags,
           related_ids,
@@ -1513,7 +1520,7 @@ export function registerTools(server: McpServer) {
             flowLines.push(`    ${mid}("⚡ ${label}${fileSuffix}")`);
           }
 
-          if (!hasIncoming.has(node.id)) {
+          if (entryPoints.includes(node) && !hasIncoming.has(node.id)) {
             flowLines.push(`    class ${mid} entry`);
           } else if (seedNodes.has(node.id)) {
             flowLines.push(`    class ${mid} seed`);
@@ -1914,13 +1921,8 @@ export function registerTools(server: McpServer) {
         } catch { /* skip */ }
       }
 
-      const uniqueFiles = new Set<string>();
-      for (const r of results) {
-        uniqueFiles.add(r.file);
-      }
-
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ query, project: loaded.projectName, matchCount: results.length, truncated: results.length >= maxRes, files: [...uniqueFiles], results: results.slice(0, maxRes) }, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ query, project: loaded.projectName, matchCount: results.length, truncated: results.length >= maxRes, files: [...new Set(results.map(r => r.file))], results: results.slice(0, maxRes) }, null, 2) }],
       };
     }
   );
@@ -1982,9 +1984,9 @@ export function registerTools(server: McpServer) {
       }
 
       const maxRes = maxResults || 30;
-      const targetDetails = Array.from(targetIds, id => { const n = nodeMap.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
+      const targetDetails = Array.from(targetIds).map(id => { const n = nodeMap.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
 
-      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, targets: targetDetails, totalCallers: callers.size, maxDepth: maxD, callers: takeFromIterable(callers.values(), maxRes) }, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, targets: targetDetails, totalCallers: callers.size, maxDepth: maxD, callers: Array.from(callers.values()).slice(0, maxRes) }, null, 2) }] };
     }
   );
 
@@ -2035,9 +2037,9 @@ export function registerTools(server: McpServer) {
 
       const maxRes = maxResults || 30;
       const nodeMap2 = createNodeMap(nodes);
-      const sourceDetails = Array.from(sourceIds, id => { const n = nodeMap2.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
+      const sourceDetails = Array.from(sourceIds).map(id => { const n = nodeMap2.get(id); return n ? { name: n.label, type: n.type, filePath: n.filePath || null, line: n.line || null } : { name: id, type: "unknown", filePath: null, line: null }; });
 
-      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, sources: sourceDetails, totalCallees: callees.size, maxDepth: maxD, callees: takeFromIterable(callees.values(), maxRes) }, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ symbol, project: loaded.projectName, sources: sourceDetails, totalCallees: callees.size, maxDepth: maxD, callees: Array.from(callees.values()).slice(0, maxRes) }, null, 2) }] };
     }
   );
 
@@ -2150,15 +2152,14 @@ export function registerTools(server: McpServer) {
       }
 
       const affectedFiles = new Set<string>();
-      for (const c of callers.values()) if (c.filePath) affectedFiles.add(c.filePath);
-      for (const c of callees.values()) if (c.filePath) affectedFiles.add(c.filePath);
+      for (const c of [...Array.from(callers.values()), ...Array.from(callees.values())]) if (c.filePath) affectedFiles.add(c.filePath);
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify({
           symbol, project: loaded.projectName,
           impact: { incomingDependents: callers.size, outgoingDependencies: callees.size, totalAffectedFiles: affectedFiles.size, affectedFiles: Array.from(affectedFiles), testFiles: Array.from(testFiles) },
-          callers: takeFromIterable(callers.values(), 20),
-          callees: takeFromIterable(callees.values(), 20),
+          callers: Array.from(callers.values()).slice(0, 20),
+          callees: Array.from(callees.values()).slice(0, 20),
           recommendation: callers.size > 10 ? "HIGH IMPACT" : callers.size > 0 ? "MEDIUM IMPACT" : "LOW IMPACT",
         }, null, 2) }],
       };
@@ -2334,7 +2335,7 @@ export function registerTools(server: McpServer) {
           finalArgs.push(...parsedArgs);
         }
 
-        const result = cp.spawnSync("npm", finalArgs, {
+        const result = cp.spawnSync(resolveExecutable("npm"), finalArgs, { // NOSONAR S6350: script is schema-validated and user arguments follow npm's `--` separator; no shell is used.
           timeout: maxTime * 1000,
           shell: false, // Security: explicit shell false
           maxBuffer: 1024 * 1024,
@@ -2422,7 +2423,7 @@ export function registerTools(server: McpServer) {
         // Security: Cap maxBuffer to 5MB to prevent DoS via excessive memory consumption
         const safeMaxBuffer = Math.min(maxBuffer || 1024 * 1024, 5 * 1024 * 1024);
 
-        const res = cp.spawnSync("git", ["--no-pager", ...args], { cwd: resolvedDir, encoding: "utf-8", shell: false, maxBuffer: safeMaxBuffer });
+        const res = cp.spawnSync(resolveExecutable("git"), ["--no-pager", ...args], { cwd: resolvedDir, encoding: "utf-8", shell: false, maxBuffer: safeMaxBuffer });
         if (res.error) throw res.error;
         if (res.status !== 0) throw new Error(res.stderr?.toString() || "Git command failed");
         return res.stdout.toString();
@@ -2522,15 +2523,15 @@ export function registerTools(server: McpServer) {
               results.push({ client: "hermes", action: "mcp_config", status });
             } else if (cfg.includes("mcp_servers:")) {
               cfg = cfg.replace("mcp_servers:", () => "mcp_servers:\n" + mcpEntry);
-              writeFileSyncNoFollow(hermesCfg, cfg);
+              fs.writeFileSync(hermesCfg, cfg);
               results.push({ client: "hermes", action: "mcp_config", status: "updated" });
             } else {
-              appendFileSyncNoFollow(hermesCfg, "\nmcp_servers:\n" + mcpEntry);
+              fs.writeFileSync(hermesCfg, "\nmcp_servers:\n" + mcpEntry, { flag: "a" });
               results.push({ client: "hermes", action: "mcp_config", status: "appended" });
             }
           } else {
             fs.mkdirSync(path.dirname(hermesCfg), { recursive: true });
-            writeFileSyncNoFollow(hermesCfg, "mcp_servers:\n" + mcpEntry);
+            fs.writeFileSync(hermesCfg, "mcp_servers:\n" + mcpEntry);
             results.push({ client: "hermes", action: "mcp_config", status: "created" });
           }
         } catch (err: any) {
@@ -2600,8 +2601,8 @@ def register(ctx):
     log.info("Second Brain auto plugin active")
 `;
             const pluginYaml = `name: codeatlas_second_brain\nversion: "1.0"\ndescription: Automatic Second Brain activation\nhooks:\n  - pre_llm_call\n  - post_llm_call\nenabled: true\n`;
-            writeFileSyncNoFollow(path.join(pluginDir, "__init__.py"), pluginInit);
-            writeFileSyncNoFollow(path.join(pluginDir, "plugin.yaml"), pluginYaml);
+            fs.writeFileSync(path.join(pluginDir, "__init__.py"), pluginInit);
+            fs.writeFileSync(path.join(pluginDir, "plugin.yaml"), pluginYaml);
             results.push({ client: "hermes", action: "auto_plugin", status: "installed" });
           } catch (err: any) {
             results.push({ client: "hermes", action: "auto_plugin", status: "error", error: err.message });
@@ -2635,11 +2636,11 @@ def register(ctx):
             }
 
             existing.mcpServers = { ...existing.mcpServers, ...claudeEntry.mcpServers };
-            writeFileSyncNoFollow(claudeCfg, JSON.stringify(existing, null, 2));
+            fs.writeFileSync(claudeCfg, JSON.stringify(existing, null, 2));
             results.push({ client: "claude", action: "mcp_config", status: "updated" });
           } else {
             fs.mkdirSync(path.dirname(claudeCfg), { recursive: true });
-            writeFileSyncNoFollow(claudeCfg, JSON.stringify(claudeEntry, null, 2));
+            fs.writeFileSync(claudeCfg, JSON.stringify(claudeEntry, null, 2));
             results.push({ client: "claude", action: "mcp_config", status: "created" });
           }
         } catch (err: any) {
@@ -3586,7 +3587,7 @@ def register(ctx):
         skills,
         bySource: skills.reduce((acc, s) => { acc[s.source] = (acc[s.source] || 0) + 1; return acc; }, {} as Record<string, number>),
       };
-      writeFileSyncNoFollow(BRAIN_SKILLS_PATH, JSON.stringify(inventory, null, 2));
+      fs.writeFileSync(BRAIN_SKILLS_PATH, JSON.stringify(inventory, null, 2));
 
       // Save a compact summary as dream memory for cross-session recall
       try {
@@ -3620,20 +3621,69 @@ def register(ctx):
     {
       query: z.string().max(500).describe("Current user task or prompt to retrieve context for"),
       project: z.string().max(255).optional().describe("Optional project name filter"),
+      project_id: z.string().max(255).optional().describe("Optional canonical project ID; normally resolved from the workspace"),
       limit: z.number().min(1).max(10).optional().default(5).describe("Max memories/genes to return (default: 5)"),
       minRelevanceScore: z.number().min(0).max(10).optional().describe("Optional minimum relevance score threshold for Genome context filtering"),
     },
-    async ({ query, project, limit, minRelevanceScore }) => {
+    async ({ query, project, project_id, limit, minRelevanceScore }) => {
       const auth = await checkAuth();
-      await logActivity(auth, "brain_context", { query: query.substring(0, 100), project, limit, minRelevanceScore });
+      const identity = resolveMemoryToolIdentity(project, project_id);
+      await logActivity(auth, "brain_context", { query_chars: query.length, project: identity.project, project_id: identity.project_id, limit, minRelevanceScore });
       try {
-        const result = await loadBrainContext({ query, project, limit });
+        const result = await loadBrainContext({ query, project: identity.project, project_id: identity.project_id, display_name: identity.project, workspace_path: identity.workspace_path, trace_id: randomUUID(), limit });
         return { content: [{ type: "text" as const, text: formatBrainContext(result, { query, minRelevanceScore }) }] };
       } catch (err: unknown) {
         return {
           content: [{ type: "text" as const, text: `Failed to load brain context: ${err instanceof Error ? err.message : String(err)}` }],
           isError: true,
         };
+      }
+    }
+  );
+
+  // Explicit bootstrap for MCP hosts that do not support lifecycle context injection.
+  server.tool(
+    "memory_bootstrap",
+    "Fetch the latest verified checkpoint for this project and return it as an explicit MCP tool response. This does not automatically inject context into the host; the client or agent can decide how to use the returned untrusted historical evidence.",
+    {
+      project: z.string().max(2_048).optional().describe("Optional workspace path or legacy display name; defaults to the current workspace"),
+      project_id: z.string().max(255).optional().describe("Optional canonical project ID; normally resolved from the workspace"),
+    },
+    async ({ project, project_id }) => {
+      const auth = await checkAuth();
+      const identity = resolveMemoryToolIdentity(project, project_id);
+      const traceId = randomUUID();
+      await logActivity(auth, "memory_bootstrap", { project_id: identity.project_id });
+      console.error(`[CodeAtlas memory] bootstrap_attempt trace_id=${traceId} project_id=${identity.project_id}`);
+      const resultEnvelope = (status: "ready" | "empty" | "error" | "unavailable", retrievalStatus: string, context = "", reason?: string) => ({
+        status,
+        retrieval_status: retrievalStatus,
+        project_id: identity.project_id,
+        delivery: "mcp_tool_response",
+        automatic_injection: false,
+        ...(reason ? { reason } : {}),
+        context,
+      });
+      if (!process.env.CODEATLAS_API_URL || !getResolvedApiKey()) {
+        console.error(`[CodeAtlas memory] retrieval_error trace_id=${traceId} reason=not_configured`);
+        return { content: [{ type: "text" as const, text: JSON.stringify(resultEnvelope("unavailable", "backend_error", "", "not_configured"), null, 2) }] };
+      }
+      try {
+        const result = await loadBrainContext({ query: "", project: identity.project, project_id: identity.project_id, display_name: identity.project, workspace_path: identity.workspace_path, trace_id: traceId });
+        if (result.checkpointStatus === "ok") {
+          const context = formatBrainContext(result, { maxChars: 6_000 });
+          console.error(`[CodeAtlas memory] bootstrap_returned trace_id=${traceId} project_id=${identity.project_id} delivery=mcp_tool_response`);
+          return { content: [{ type: "text" as const, text: JSON.stringify(resultEnvelope("ready", "ok", context), null, 2) }] };
+        }
+        if (result.checkpointStatus === "empty") {
+          console.error(`[CodeAtlas memory] retrieval_empty trace_id=${traceId} project_id=${identity.project_id}`);
+          return { content: [{ type: "text" as const, text: JSON.stringify(resultEnvelope("empty", "empty"), null, 2) }] };
+        }
+        console.error(`[CodeAtlas memory] retrieval_error trace_id=${traceId} project_id=${identity.project_id}`);
+        return { content: [{ type: "text" as const, text: JSON.stringify(resultEnvelope("error", result.checkpointStatus ?? "backend_error", "", "checkpoint_unavailable"), null, 2) }] };
+      } catch {
+        console.error(`[CodeAtlas memory] retrieval_error trace_id=${traceId} project_id=${identity.project_id}`);
+        return { content: [{ type: "text" as const, text: JSON.stringify(resultEnvelope("error", "backend_error", "", "checkpoint_unavailable"), null, 2) }] };
       }
     }
   );
