@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { redactSensitiveContent } from "./eventDecoder.js";
+import { isNonProjectInstructionArtifact } from "../../services/contextSafety.js";
 
 export interface TranscriptCursor {
   dev: number;
@@ -151,7 +152,7 @@ export async function readClaudeTranscript(args: {
           if (!insideAuthorizedRoot) { lineOffset += lineBytes; continue; }
         }
         const content = extractMessageText(record);
-        if (content) {
+        if (content && !isNonProjectInstructionArtifact(content)) {
           const suppliedUuid = typeof record.uuid === "string" && /^[A-Za-z0-9._:-]{1,255}$/.test(record.uuid) ? record.uuid : undefined;
           const sourceHash = createHash("sha256").update(`${args.projectId}\0${args.sessionId}\0${lineOffset}\0${rawLine}`).digest("hex");
           const eventId = suppliedUuid ? `claude_${createHash("sha256").update(`${args.projectId}\0${args.sessionId}\0${suppliedUuid}`).digest("hex")}` : `claude_${sourceHash}`;

@@ -1,6 +1,7 @@
 import { queryDreamMemories, queryDreamMemoriesWithStatus, classifyRetrievalError, DreamRetrievalError, type DreamMemoryQueryResult, type DreamRetrievalStatus, type DreamMemoryResult } from "./dreamingService.js";
 import { getApiUrl } from "../utils/envUtils.js";
 import { getResolvedApiKey } from "./projectService.js";
+import { isNonProjectInstructionArtifact } from "./contextSafety.js";
 
 const ALLOWED_TYPES = new Set(["MISTAKE", "PREFERENCE", "KNOWLEDGE", "PATTERN", "SESSION_SUMMARY"]);
 
@@ -143,12 +144,16 @@ export function formatBrainContext(
   const options: FormatBrainContextOptions =
     typeof queryOrOptions === "string" ? { query: queryOrOptions } : (queryOrOptions ?? {});
 
-  const dreams = filterAllowedDreams(result.dreams).slice(0, 5);
-  const rawGenes = result.genes.slice(0, 5);
+  const dreams = filterAllowedDreams(result.dreams)
+    .filter((memory) => !isNonProjectInstructionArtifact(memory.content))
+    .slice(0, 5);
+  const rawGenes = result.genes
+    .filter((gene) => !isNonProjectInstructionArtifact(`${gene.name}\n${gene.description}`))
+    .slice(0, 5);
   const genes = options.query
     ? filterGenesByRelevance(rawGenes, options.query, options.minRelevanceScore)
     : rawGenes;
-  const immune = text(result.immune, 1200);
+  const immune = isNonProjectInstructionArtifact(result.immune) ? "" : text(result.immune, 1200);
   const checkpoint = result.checkpointStatus === "ok" ? result.checkpoint : null;
 
   if (dreams.length === 0 && genes.length === 0 && !immune && !checkpoint) {
@@ -165,12 +170,13 @@ export function formatBrainContext(
 
   if (checkpoint) {
     lines.push("", "Latest session checkpoint:");
-    const activeTask = text(checkpoint.active_task, 500);
+    const safeCheckpointText = (value: unknown, length: number) => isNonProjectInstructionArtifact(value) ? "" : text(value, length);
+    const activeTask = safeCheckpointText(checkpoint.active_task, 500);
     if (activeTask) lines.push(`- Active task: ${activeTask}`);
-    for (const item of checkpoint.completed.slice(0, 8)) { const value = text(item, 300); if (value) lines.push(`- Completed: ${value}`); }
-    for (const item of checkpoint.decisions.slice(0, 8)) { const value = text(item, 300); if (value) lines.push(`- Decision: ${value}`); }
-    for (const item of checkpoint.blockers.slice(0, 6)) { const value = text(item, 300); if (value) lines.push(`- Blocker: ${value}`); }
-    for (const item of checkpoint.next_actions.slice(0, 6)) { const value = text(item, 300); if (value) lines.push(`- Next: ${value}`); }
+    for (const item of checkpoint.completed.slice(0, 8)) { const value = safeCheckpointText(item, 300); if (value) lines.push(`- Completed: ${value}`); }
+    for (const item of checkpoint.decisions.slice(0, 8)) { const value = safeCheckpointText(item, 300); if (value) lines.push(`- Decision: ${value}`); }
+    for (const item of checkpoint.blockers.slice(0, 6)) { const value = safeCheckpointText(item, 300); if (value) lines.push(`- Blocker: ${value}`); }
+    for (const item of checkpoint.next_actions.slice(0, 6)) { const value = safeCheckpointText(item, 300); if (value) lines.push(`- Next: ${value}`); }
     const eventIds = checkpoint.source_event_ids.slice(0, 12).map((id) => text(id, 100)).filter(Boolean);
     const sessionIds = checkpoint.source_session_ids.slice(0, 6).map((id) => text(id, 100)).filter(Boolean);
     if (eventIds.length || sessionIds.length) lines.push(`- Sources: ${[...eventIds, ...sessionIds].join(", ")}`);
