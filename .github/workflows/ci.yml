@@ -132,9 +132,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+        run: rustup component add clippy rustfmt
 
       - name: Rust format check
         run: cargo fmt --manifest-path codeatlas-rust/Cargo.toml --all -- --check
