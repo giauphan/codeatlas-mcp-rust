@@ -163,7 +163,8 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
   log_warn "${INSTALL_DIR} is not in your current PATH!"
   echo ""
   echo "Add it to your shell profile to run 'codeatlas' from anywhere:"
-  if [[ -n "${ZSH_VERSION:-}" || -f "${HOME}/.zshrc" ]]; then
+  CURRENT_SHELL="$(basename "${SHELL:-bash}")"
+  if [[ -n "${ZSH_VERSION:-}" || "$CURRENT_SHELL" == "zsh" ]]; then
     echo "  ${BOLD}echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc && source ~/.zshrc${RESET}"
   else
     echo "  ${BOLD}echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.bashrc && source ~/.bashrc${RESET}"

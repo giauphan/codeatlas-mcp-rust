@@ -126,13 +126,32 @@ Diagnostics complete: System is healthy.
 
 ### Claude Desktop
 
-To configure CodeAtlas MCP for Claude Desktop automatically:
+To configure CodeAtlas MCP for Claude Desktop automatically on native macOS or Linux:
 
 ```bash
 codeatlas setup-claude
 ```
 
 This writes or updates the CodeAtlas MCP server entry in `~/.config/Claude/claude_desktop_config.json` on Linux or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS.
+
+#### Claude Desktop on Windows (WSL)
+
+When running Claude Desktop on Windows while developing inside WSL, Claude Desktop runs on the Windows host and reads `%APPDATA%\Claude\claude_desktop_config.json`. Configure CodeAtlas using `wsl.exe`:
+
+```json
+{
+  "mcpServers": {
+    "codeatlas": {
+      "command": "wsl.exe",
+      "args": [
+        "bash",
+        "-lc",
+        "codeatlas"
+      ]
+    }
+  }
+}
+```
 
 ### Zed Editor
 

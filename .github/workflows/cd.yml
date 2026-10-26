@@ -102,6 +102,11 @@ jobs:
             if [ "$STATUS_CODE" = "200" ]; then
               echo "$CRATE v$VERSION is already published on crates.io; skipping."
               continue
+            elif [ "$STATUS_CODE" = "404" ]; then
+              echo "$CRATE v$VERSION is not yet published on crates.io; proceeding to publish."
+            else
+              echo "::error::Unexpected HTTP response ($STATUS_CODE) checking crates.io status for $CRATE v$VERSION."
+              exit 1
             fi
 
             echo "Publishing $CRATE v$VERSION to crates.io..."
