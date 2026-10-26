@@ -16,6 +16,11 @@ coverage/tmp/
 
 # Build output
 dist/
+/target
+bin/codeatlas
+bin/codeatlas.exe
+**/*.rs.bk
+*.log
 .jules/
 .codeatlas/
 plan.md

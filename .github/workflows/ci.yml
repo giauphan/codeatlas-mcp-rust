@@ -18,111 +18,9 @@ permissions:
   contents: read
 
 # ──────────────────────────────────────────────────────────
-# ② + ③ + ④ + ⑤ + ⑥  —  3 jobs run IN PARALLEL after checkout
-# Each job: npm ci → its own step(s)
+# ② RUST NATIVE ENGINE CI PIPELINE
 # ──────────────────────────────────────────────────────────
 jobs:
-  # ── Lint (type-check only — no build needed) ─────────
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          # Keep Node 20 for lint — TypeScript type-checking has no Node version requirement.
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: TypeScript type check
-        run: npm run lint
-
-  # ── Build + package validation ─────────────────────────
-  build:
-    name: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          # Node 22 matches the test job — no harm in keeping build on the same runtime.
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Build (compiles src without test files)
-        run: npm run build
-
-      - name: Verify build output
-        run: npm run verify-build
-
-      - name: Validate package contents
-        run: npm pack --dry-run
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          retention-days: 1
-
-  # ── Test + coverage gate ────────────────────────────────
-  test:
-    name: test
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-
-      - name: Test
-        run: npm test
-
-      - name: Coverage gate (must hit 40% threshold)
-        run: ./node_modules/.bin/c8 --reporter=text --reportDir=coverage --check-coverage --lines=40 --exclude='dist/**' npm test
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 7
-
-      - name: Save error artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: error-logs
-          path: ./error-logs/
-          retention-days: 7
-
   # ── Rust native engine CI ──────────────────────────────
   rust:
     name: rust
@@ -134,24 +32,33 @@ jobs:
       - name: Setup Rust toolchain
         run: rustup component add clippy rustfmt
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Rust format check
-        run: cargo fmt --manifest-path codeatlas-rust/Cargo.toml --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Rust clippy
-        run: cargo clippy --manifest-path codeatlas-rust/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Rust test suite
-        run: cargo test --manifest-path codeatlas-rust/Cargo.toml --workspace
+        run: cargo test --workspace
 
-  # ── ⑦ PASS/FAIL gate — all must pass ──────────────────
-  # This job has no steps; its sole purpose is to enforce
-  # that lint + build + test + rust ALL succeed before the pipeline
-  # reports green. Add manual quality gates here if needed.
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Test Node launcher wrapper
+        run: |
+          node bin/codeatlas.js --version
+          node bin/codeatlas.js doctor
+
+  # ── PASS/FAIL gate ─────────────────────────────────────
   gate:
     name: gate
     runs-on: ubuntu-latest
-    needs: [lint, build, test, rust]
-    # `needs` already fails this job when any dependency fails → CI red
+    needs: [rust]
     steps:
       - name: All checks passed
-        run: echo "CI passed — lint, build, and test are all green"
+        run: echo "CI passed — all Rust and launcher checks are green"
