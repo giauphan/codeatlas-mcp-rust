@@ -4,7 +4,7 @@
 # https://github.com/giauphan/codeatlas-mcp-rust
 #
 # Usage:
-#   curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh && rm -f /tmp/install.sh
+#   tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp"; rm -f "$tmp"
 #   or locally: ./install.sh [--setup-claude] [--setup-zed]
 # ==============================================================================
 

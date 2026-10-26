@@ -23,7 +23,7 @@ This guide covers installation options for **macOS**, **Linux**, and **WSL** acr
 The easiest way to install CodeAtlas on macOS and Linux is using our official installer script:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh && rm -f /tmp/install.sh
+tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp"; rm -f "$tmp"
 ```
 
 ### Automated Client Configuration Flags
@@ -32,13 +32,13 @@ You can pass post-install integration flags directly:
 
 ```bash
 # Install and automatically configure Claude Code hooks
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --setup-claude && rm -f /tmp/install.sh
+tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-claude; rm -f "$tmp"
 
 # Install and automatically configure Zed Editor MCP settings
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --setup-zed && rm -f /tmp/install.sh
+tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-zed; rm -f "$tmp"
 
 # Configure both Claude and Zed
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --setup-claude --setup-zed && rm -f /tmp/install.sh
+tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-claude --setup-zed; rm -f "$tmp"
 ```
 
 ---
