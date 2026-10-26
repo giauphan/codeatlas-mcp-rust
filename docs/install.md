@@ -23,7 +23,7 @@ This guide covers installation options for **macOS**, **Linux**, and **WSL** acr
 The easiest way to install CodeAtlas on macOS and Linux is using our official installer script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh | bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh && rm -f /tmp/install.sh
 ```
 
 ### Automated Client Configuration Flags
@@ -32,13 +32,13 @@ You can pass post-install integration flags directly:
 
 ```bash
 # Install and automatically configure Claude Code hooks
-curl -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh | bash -s -- --setup-claude
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --setup-claude && rm -f /tmp/install.sh
 
 # Install and automatically configure Zed Editor MCP settings
-curl -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh | bash -s -- --setup-zed
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --setup-zed && rm -f /tmp/install.sh
 
 # Configure both Claude and Zed
-curl -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh | bash -s -- --setup-claude --setup-zed
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --setup-claude --setup-zed && rm -f /tmp/install.sh
 ```
 
 ---

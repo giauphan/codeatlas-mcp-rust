@@ -4,7 +4,7 @@
 # https://github.com/giauphan/codeatlas-mcp-rust
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh | bash
+#   curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh && rm -f /tmp/install.sh
 #   or locally: ./install.sh [--setup-claude] [--setup-zed]
 # ==============================================================================
 
@@ -115,15 +115,17 @@ INSTALLED=false
 if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/Cargo.toml" && -d "${SCRIPT_DIR}/crates" ]]; then
   log_info "Detected local source directory. Compiling from repository source..."
   if command -v cargo >/dev/null 2>&1; then
-    if cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${SCRIPT_DIR}/target" 2>/dev/null; then
+    if cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${SCRIPT_DIR}/target"; then
       cp -f "${SCRIPT_DIR}/target/release/codeatlas" "$BIN_TARGET"
       chmod 755 "$BIN_TARGET"
       INSTALLED=true
     else
-      log_warn "Local source compilation failed. Falling back to alternative installation methods..."
+      log_error "Local source compilation failed."
+      exit 1
     fi
   else
-    log_warn "Cargo not found in PATH for local compilation."
+    log_error "Cargo is required for local compilation but was not found in PATH."
+    exit 1
   fi
 fi
 
@@ -163,8 +165,6 @@ if [[ "$INSTALLED" = false ]]; then
     HTTP_STATUS=""
     if command -v curl >/dev/null 2>&1; then
       HTTP_STATUS="$(curl --proto '=https' --proto-redir '=https' -sSL -w "%{http_code}" -o "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" || true)"
-    elif command -v wget >/dev/null 2>&1; then
-      wget --https-only -q -O "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" && HTTP_STATUS="200" || HTTP_STATUS="404"
     fi
 
     if [[ "$HTTP_STATUS" == "200" && -s "${TEMP_DIR}/codeatlas.tar.gz" ]]; then
