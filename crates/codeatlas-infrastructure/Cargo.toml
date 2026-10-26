@@ -1,0 +1,31 @@
+[package]
+name = "codeatlas-infrastructure"
+version = "3.0.1"
+edition = "2021"
+authors = ["Giau Phan <giauphan012@gmail.com>"]
+description = "Infrastructure engines: Tree-sitter parsers, petgraph store, file watchers, and caching"
+license = "MIT"
+
+[dependencies]
+codeatlas-domain = { path = "../codeatlas-domain" }
+codeatlas-application = { path = "../codeatlas-application" }
+
+petgraph = "0.6"
+tree-sitter = "0.22"
+tree-sitter-typescript = "0.21"
+tree-sitter-python = "0.21"
+memmap2 = "0.9"
+rayon = "1.10"
+notify = "6.1"
+notify-debouncer-full = "0.3"
+lasso = { version = "0.7", features = ["multi-threaded"] }
+dashmap = "6.0"
+regex = "1.10"
+async-trait = "0.1"
+tokio = { version = "1.40", features = ["fs", "sync", "time"] }
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+parking_lot = "0.12"

@@ -1,0 +1,22 @@
+[package]
+name = "codeatlas-adapters"
+version = "3.0.1"
+edition = "2021"
+authors = ["Giau Phan <giauphan012@gmail.com>"]
+description = "Interface adapters: MCP stdio transport, CLI controllers, and outbound clients"
+license = "MIT"
+
+[dependencies]
+codeatlas-domain = { path = "../codeatlas-domain" }
+codeatlas-application = { path = "../codeatlas-application" }
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+async-trait = "0.1"
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+validator = { version = "0.18", features = ["derive"] }
+strsim = "0.11"
