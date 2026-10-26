@@ -106,13 +106,16 @@ log_info "Target Installation Directory: ${INSTALL_DIR}"
 
 # 3. Installation Strategy
 # Check if running from local source clone
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+fi
 INSTALLED=false
 
 if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/Cargo.toml" ] && [ -d "${SCRIPT_DIR}/crates" ]; then
   log_info "Detected local source directory. Compiling from repository source..."
   if command -v cargo >/dev/null 2>&1; then
-    cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml"
+    cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${SCRIPT_DIR}/target"
     cp -f "${SCRIPT_DIR}/target/release/codeatlas" "$BIN_TARGET"
     chmod 755 "$BIN_TARGET"
     INSTALLED=true
@@ -205,7 +208,10 @@ fi
 # 5. Verification
 echo ""
 log_info "Verifying installation..."
-"$BIN_TARGET" --version || true
+if ! "$BIN_TARGET" --version; then
+  log_error "The installed CodeAtlas binary could not start."
+  exit 1
+fi
 echo ""
 "$BIN_TARGET" doctor || true
 
