@@ -1,62 +1,94 @@
 # Contributing to CodeAtlas MCP Server
 
-Thank you for helping improve CodeAtlas MCP Server.
+Thank you for your interest in contributing to **CodeAtlas MCP Server**! We welcome bug fixes, documentation improvements, new features, and architectural enhancements.
 
-## Requirements and setup
+---
 
-- Node.js 20 or newer.
-- npm for the install and checks used in GitHub Actions.
+## 🛠️ Prerequisites & Local Setup
 
-From a fresh checkout:
+CodeAtlas MCP Server is built as a modular Rust workspace following Clean Architecture principles.
 
+### Requirements:
+- **Rust**: 1.80.0 or later (`stable` channel recommended).
+- **Cargo**: Included with standard Rust installation.
+- **Components**: `rustfmt` and `clippy`.
+  ```bash
+  rustup component add rustfmt clippy
+  ```
+
+### Quick Setup:
 ```bash
-npm ci
-npm run build
-npm test
+# Clone repository
+git clone https://github.com/giauphan/codeatlas-mcp-rust.git
+cd codeatlas-mcp-rust
+
+# Verify workspace compilation
+cargo check --workspace
+
+# Run full unit and integration test suite
+cargo test --workspace
 ```
 
-The package also tracks a pnpm lockfile and workspace configuration. Preserve
-both package lockfiles when changing dependencies. The `.npmrc` setting
-`install-links=false` and the checked-in braces compatibility adapter and
-vendored archive support reproducible cold installs.
+---
 
-The MCP server uses stdio and can run locally without a cloud service. Oracle,
-Firebase, and a separately hosted web application are not prerequisites for
-contributing to this package. Cloud-backed memory and genome functionality can
-be exercised with `CODEATLAS_API_URL` and `CODEATLAS_API_KEY` configured for the
-separate `codeatlas-platform` API.
+## 🏛️ Architecture & Clean Code Principles
 
-## Change workflow
+The project strictly follows **Clean Architecture & Domain-Driven Design (DDD)**:
 
-1. Create a focused branch for your change.
-2. Make the change and update relevant documentation. Add or update tests for
-   behavior changes.
-3. Run appropriate local checks:
+1. **Inward Dependency Rule**:
+   - `codeatlas-domain`: Pure domain models, value objects, and port traits. Zero external framework or infrastructure dependencies.
+   - `codeatlas-application`: Use cases, interactors, and business workflows. Depends only on `codeatlas-domain`.
+   - `codeatlas-infrastructure`: Tree-sitter AST parsers, petgraph store, file watchers, and caching engines.
+   - `codeatlas-adapters`: MCP stdio transport, CLI subcommands (`doctor`, `setup-claude`, `setup-zed`), and external HTTP clients.
+   - `codeatlas-cli`: Root binary entry point stitching components together.
+2. **Framework Decoupling**:
+   - Never leak transport-specific types (e.g., raw JSON-RPC frames, CLI flags) into domain entities.
+3. **Module Sizing**:
+   - Target under 450 lines per module (hard limit of 800 lines). Break larger modules into cohesive submodules with facade re-exports (`pub(crate) use`).
+4. **Boundary Validation**:
+   - Validate and sanitize all external inputs at entry boundaries. Fail closed on malformed requests.
 
-   ```bash
-   npm run lint
-   npm run build
-   npm run verify-build
-   npm test
-   ```
+---
 
-4. Use a [Conventional Commit](https://www.conventionalcommits.org/) message,
-   such as `feat: add Ruby parser`, `fix: handle empty graph nodes`, or
-   `docs: clarify local setup`.
-5. Open a pull request against `main` and review the GitHub Actions checks.
+## 🔄 Development & Verification Workflow
 
-The detailed workflow dependencies and release rules are in the
-[pipeline runbook](./docs/PIPELINE.md). A documentation-only commit normally
-does not publish a package because semantic-release only creates releases for
-commits whose Conventional Commit type or breaking-change marker selects a
-release.
+Before submitting a pull request, ensure all quality gates pass locally:
 
-## Code standards
+```bash
+# 1. Format check
+cargo fmt --all -- --check
 
-- Keep TypeScript strict and avoid `any` unless needed at an external boundary.
-- Use clear names and comments for non-obvious behavior.
-- Keep public APIs and security-sensitive behavior covered by focused tests.
-- Do not commit credentials, local `.env` files, or machine-specific settings.
+# 2. Linting (zero warnings enforced)
+cargo clippy --workspace --all-targets -- -D warnings
 
-See the [Code of Conduct](./CODE_OF_CONDUCT.md) and report bugs through
-[GitHub Issues](https://github.com/giauphan/codeatlas-mcp-server/issues).
+# 3. Unit and integration tests
+cargo test --workspace
+
+# 4. Manifest and package verification
+cargo package --workspace --no-verify
+```
+
+---
+
+## 📝 Commit Conventions & Pull Requests
+
+1. **Branching**: Create a feature branch from `main` (e.g. `fix/ast-python-decorator` or `feat/memory-cache`).
+2. **Commit Messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/):
+   - `feat(...)`: New user-facing feature or tool.
+   - `fix(...)`: Bug fix.
+   - `docs(...)`: Documentation changes.
+   - `refactor(...)`: Code changes without behavior modifications.
+   - `perf(...)`: Performance improvements.
+   - `test(...)`: Adding or updating test suites.
+   - `chore(...)`: Tooling, CI, dependencies, or metadata updates.
+3. **Pull Request**:
+   - Ensure all GitHub Actions checks pass (CI, Pre-Push Quality Gate, CodeQL).
+   - Link any relevant issues.
+
+---
+
+## 🤝 Community & Support
+
+- **Code of Conduct**: All contributors are expected to uphold the [Code of Conduct](./CODE_OF_CONDUCT.md).
+- **Bug Reports & Feature Requests**: Submit an issue via [GitHub Issues](https://github.com/giauphan/codeatlas-mcp-rust/issues).
+- **Security**: Report sensitive vulnerabilities privately following our [Security Policy](./SECURITY.md).

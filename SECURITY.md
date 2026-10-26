@@ -1,15 +1,39 @@
 # Security Policy
 
-## Reporting a vulnerability
+## Supported Versions
 
-Please report vulnerabilities through a [private GitHub security advisory](https://github.com/giauphan/codeatlas-mcp-server/security/advisories/new). You can also contact the repository owner at **giauphan012@gmail.com**, the public email listed on the repository owner's GitHub profile. Include the affected version or commit, affected files or components, steps to reproduce, and the impact.
+The following table lists the security support status for versions of CodeAtlas MCP Server:
 
-Please keep reports private while they are being reviewed.
+| Version | Supported          | Status |
+| ------- | ------------------ | ------ |
+| 0.3.x   | :white_check_mark: | Active security updates and bug fixes |
+| < 0.3   | :x:                | End of life; upgrade to 0.3.x recommended |
 
-## Security notes for operators
+## Reporting a Vulnerability
 
-CodeAtlas MCP Server starts as an MCP process over standard input and output. It does not start an HTTP or SSE listener in this entry point. It can make outbound requests when cloud features or an explicitly configured AI scan are used. See [the architecture overview](docs/architecture/overview.md) for the data sent and destination controls.
+We take the security of CodeAtlas seriously. If you believe you have found a security vulnerability, please do **not** report it through public GitHub issues or discussions.
 
-The server reads `CODEATLAS_API_KEY` from the environment and can also resolve it from supported local MCP client configuration files. Those configuration files may store the key on disk. The process also writes diagnostics to `~/.codeatlas/mcp.log` and a local project-path registry to `~/.codeatlas/registered_projects.json`.
+Instead, please report vulnerabilities through a [private GitHub security advisory](https://github.com/giauphan/codeatlas-mcp-rust/security/advisories/new).
 
-File helpers use `O_NOFOLLOW` for the final file component when opening selected files. This does not protect parent directories from symlink substitution or establish a general filesystem sandbox. Treat the process as having the filesystem permissions of the user who runs it, and limit the workspaces made available to the MCP client.
+You can also contact the repository maintainer directly at **giauphan012@gmail.com**, the public email listed on the repository owner's GitHub profile.
+
+### What to include in your report:
+- Affected component or crate (`codeatlas-cli`, `codeatlas-adapters`, `codeatlas-infrastructure`, `codeatlas-application`, `codeatlas-domain`).
+- Affected version or commit SHA.
+- Step-by-step reproduction instructions or proof-of-concept (PoC).
+- Potential impact and threat model.
+
+### Response timeline:
+- **Initial Acknowledgment**: Within 48 hours.
+- **Triage & Assessment**: Within 5 business days.
+- **Fix & Advisory Release**: Coordinated disclosure with CVE assignment if applicable.
+
+Please keep reports confidential until a patch has been published.
+
+## Security Architecture & Local-First Isolation
+
+CodeAtlas MCP Server is designed with local-first security principles:
+1. **Local-First Stdio Execution**: Runs as an MCP child process communicating strictly over `stdin`/`stdout`. It opens no external HTTP/SSE listening ports by default.
+2. **Credential Hygiene**: The API key (`CODEATLAS_API_KEY`) is read from process environment variables or validated local client configs. Sensitive keys are masked and redacted from all debug logs and traces.
+3. **Outbound Destination Whitelisting**: Outbound cloud requests (such as dream memory sync) strictly validate target endpoints against allowed official domains (`*.codeatlas.ai`, `opencode.ai`) or local addresses (`127.0.0.1`, `localhost`). Untrusted endpoints require explicit operator opt-in via `CODEATLAS_ALLOW_CUSTOM_URL=true`.
+4. **Symlink Boundary Checks**: File access routines enforce strict boundary checks and avoid traversal beyond authorized workspace roots.
