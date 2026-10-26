@@ -20,6 +20,8 @@ This guide covers installation options for **macOS**, **Linux**, and **WSL** acr
 
 ## 2. Quick Install via Shell Script (Recommended)
 
+Quick install requires Rust and Cargo to be installed on your system. If you do not have Rust installed yet, run `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` first.
+
 The easiest way to install CodeAtlas on macOS and Linux is using our official installer script:
 
 ```bash
@@ -91,7 +93,7 @@ cd codeatlas-mcp-rust
 cargo build --release --locked
 
 # Run the local installer
-./install.sh
+./install.sh --from-source
 ```
 
 ---

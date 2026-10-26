@@ -26,9 +26,13 @@ log_error()   { echo "${RED}✗${RESET} ${BOLD}$*${RESET}" >&2; }
 # Parse arguments
 SETUP_CLAUDE=false
 SETUP_ZED=false
+FROM_SOURCE=false
 
 for arg in "$@"; do
   case "$arg" in
+    --from-source)
+      FROM_SOURCE=true
+      ;;
     --setup-claude|--setup-claude-desktop)
       SETUP_CLAUDE=true
       ;;
@@ -41,6 +45,7 @@ for arg in "$@"; do
       echo "Usage: ./install.sh [OPTIONS]"
       echo ""
       echo "Options:"
+      echo "  --from-source     Build and install directly from local repository source checkout"
       echo "  --setup-claude    Automatically configure Claude Desktop MCP settings after install"
       echo "  --setup-zed       Automatically configure Zed editor MCP settings after install"
       echo "  -h, --help        Show this help message"
@@ -105,26 +110,24 @@ BIN_TARGET="${INSTALL_DIR}/codeatlas"
 log_info "Target Installation Directory: ${INSTALL_DIR}"
 
 # 3. Installation Strategy
-# Check if running from local source clone
-SCRIPT_DIR=""
-if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
-fi
 INSTALLED=false
 
-if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/Cargo.toml" && -d "${SCRIPT_DIR}/crates" ]]; then
-  log_info "Detected local source directory. Compiling from repository source..."
-  if command -v cargo >/dev/null 2>&1; then
-    if cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${SCRIPT_DIR}/target"; then
-      cp -f "${SCRIPT_DIR}/target/release/codeatlas" "$BIN_TARGET"
-      chmod 755 "$BIN_TARGET"
-      INSTALLED=true
-    else
-      log_error "Local source compilation failed."
-      exit 1
-    fi
-  else
+if [[ "$FROM_SOURCE" = true ]]; then
+  if [[ ! -f "Cargo.toml" || ! -d "crates" ]]; then
+    log_error "Current working directory is not a valid CodeAtlas repository checkout."
+    exit 1
+  fi
+  log_info "Detected explicit --from-source flag. Compiling from repository source..."
+  if ! command -v cargo >/dev/null 2>&1; then
     log_error "Cargo is required for local compilation but was not found in PATH."
+    exit 1
+  fi
+  if cargo build --release --locked --manifest-path "Cargo.toml" --target-dir "target"; then
+    cp -f "target/release/codeatlas" "$BIN_TARGET"
+    chmod 755 "$BIN_TARGET"
+    INSTALLED=true
+  else
+    log_error "Local source compilation failed."
     exit 1
   fi
 fi
