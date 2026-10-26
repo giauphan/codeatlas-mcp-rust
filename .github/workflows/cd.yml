@@ -1,0 +1,126 @@
+name: CD - Publish to crates.io
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Perform dry run without uploading to crates.io'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-crates-io
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Verify & Test Workspace
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup component add clippy rustfmt
+
+      - name: Rust format check
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Rust test suite
+        run: cargo test --locked --workspace
+
+      - name: Verify package manifests
+        run: cargo package --workspace --no-verify
+
+  publish:
+    name: Publish to crates.io
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup default stable
+
+      - name: Publish crates in topological dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || secrets.CRATES_IO_TOKEN || secrets.CRATES_TOKEN || secrets.CARGO_API_KEY }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          CRATES=(
+            "codeatlas-domain"
+            "codeatlas-application"
+            "codeatlas-infrastructure"
+            "codeatlas-adapters"
+            "codeatlas"
+          )
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::Executing in dry-run mode via cargo package --workspace --no-verify"
+            cargo package --workspace --no-verify
+            echo "Dry run package verification completed successfully."
+            exit 0
+          fi
+
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::error::No crates.io publishing token found. Please set secret CARGO_REGISTRY_TOKEN (or CRATES_IO_TOKEN / CARGO_API_KEY) in GitHub repository secrets (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "::error::Publishing to crates.io requires running on a git tag (e.g. v3.0.1). Manual runs on branches are only permitted with dry_run: true."
+            exit 1
+          fi
+
+          TAG_NAME="${GITHUB_REF_NAME:-}"
+          echo "Preflight validation: Verifying all crate manifest versions match tag '$TAG_NAME'..."
+          for CRATE in "${CRATES[@]}"; do
+            VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$CRATE\") | .version")
+            if [ "$TAG_NAME" != "v$VERSION" ]; then
+              echo "::error::Tag '$TAG_NAME' does not match crate $CRATE manifest version 'v$VERSION'"
+              exit 1
+            fi
+            echo "✓ $CRATE v$VERSION matches tag $TAG_NAME"
+          done
+
+          echo "Preflight checks passed. Beginning publication..."
+          for CRATE in "${CRATES[@]}"; do
+            VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$CRATE\") | .version")
+            echo "--------------------------------------------------------"
+            echo "Processing $CRATE v$VERSION..."
+
+            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: codeatlas-cd (${GITHUB_REPOSITORY:-giauphan/codeatlas-mcp-rust})" "https://crates.io/api/v1/crates/$CRATE/$VERSION" || true)
+            if [ "$STATUS_CODE" = "200" ]; then
+              echo "$CRATE v$VERSION is already published on crates.io; skipping."
+              continue
+            elif [ "$STATUS_CODE" = "404" ]; then
+              echo "$CRATE v$VERSION is not yet published on crates.io; proceeding to publish."
+            else
+              echo "::error::Unexpected HTTP response ($STATUS_CODE) checking crates.io status for $CRATE v$VERSION."
+              exit 1
+            fi
+
+            echo "Publishing $CRATE v$VERSION to crates.io..."
+            cargo publish -p "$CRATE" --locked
+
+            if [ "$CRATE" != "codeatlas" ]; then
+              echo "Waiting 25s for crates.io index to update before publishing dependents..."
+              sleep 25
+            fi
+          done
+
+          echo "========================================================"
+          echo "All crates processed successfully for crates.io!"
