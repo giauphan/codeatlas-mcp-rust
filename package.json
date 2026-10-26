@@ -12,6 +12,8 @@
     "codeatlas-enterprise": "bin/codeatlas.js",
     "codeatlas-mcp": "bin/codeatlas.js",
     "codeatlas": "bin/codeatlas.js",
+    "codeatlas-cli": "bin/codeatlas.js",
+    "codeatlas-mcp-server": "bin/codeatlas.js",
     "codeatlas-setup-claude": "bin/codeatlas-setup-claude.js"
   },
   "files": [
