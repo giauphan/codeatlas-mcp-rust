@@ -95,8 +95,9 @@ esac
 log_info "Detected Platform: ${OS_TYPE}-${ARCH_TYPE} (${OS} ${ARCH})"
 
 # 2. Determine target binary directory
-if [[ -n "${CARGO_HOME:-}" && -d "${CARGO_HOME}/bin" ]]; then
+if [[ -n "${CARGO_HOME:-}" ]]; then
   INSTALL_DIR="${CARGO_HOME}/bin"
+  mkdir -p "$INSTALL_DIR"
 elif [[ -d "${HOME}/.cargo/bin" ]]; then
   INSTALL_DIR="${HOME}/.cargo/bin"
 elif [[ -d "${HOME}/.local/bin" ]]; then
@@ -146,7 +147,7 @@ if [[ "$INSTALLED" = false ]]; then
 
   log_info "Installing codeatlas from crates.io via Cargo..."
   INSTALL_ROOT="$(dirname "$INSTALL_DIR")"
-  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force 2>/dev/null && [[ -f "$BIN_TARGET" ]]; then
+  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force && [[ -f "$BIN_TARGET" ]]; then
     INSTALLED=true
   else
     log_error "Failed to install codeatlas from crates.io via Cargo."
