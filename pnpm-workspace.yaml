@@ -1,6 +1,0 @@
-allowBuilds:
-  esbuild: true
-onlyBuiltDependencies:
-  - esbuild
-overrides:
-  braces: file:tools/braces-compat
