@@ -90,11 +90,11 @@ esac
 log_info "Detected Platform: ${OS_TYPE}-${ARCH_TYPE} (${OS} ${ARCH})"
 
 # 2. Determine target binary directory
-if [ -n "${CARGO_HOME:-}" ] && [ -d "${CARGO_HOME}/bin" ]; then
+if [[ -n "${CARGO_HOME:-}" && -d "${CARGO_HOME}/bin" ]]; then
   INSTALL_DIR="${CARGO_HOME}/bin"
-elif [ -d "${HOME}/.cargo/bin" ]; then
+elif [[ -d "${HOME}/.cargo/bin" ]]; then
   INSTALL_DIR="${HOME}/.cargo/bin"
-elif [ -d "${HOME}/.local/bin" ]; then
+elif [[ -d "${HOME}/.local/bin" ]]; then
   INSTALL_DIR="${HOME}/.local/bin"
 else
   INSTALL_DIR="${HOME}/.local/bin"
@@ -107,28 +107,31 @@ log_info "Target Installation Directory: ${INSTALL_DIR}"
 # 3. Installation Strategy
 # Check if running from local source clone
 SCRIPT_DIR=""
-if [ -n "${BASH_SOURCE[0]:-}" ]; then
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
 fi
 INSTALLED=false
 
-if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/Cargo.toml" ] && [ -d "${SCRIPT_DIR}/crates" ]; then
+if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/Cargo.toml" && -d "${SCRIPT_DIR}/crates" ]]; then
   log_info "Detected local source directory. Compiling from repository source..."
   if command -v cargo >/dev/null 2>&1; then
-    cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${SCRIPT_DIR}/target"
-    cp -f "${SCRIPT_DIR}/target/release/codeatlas" "$BIN_TARGET"
-    chmod 755 "$BIN_TARGET"
-    INSTALLED=true
+    if cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${SCRIPT_DIR}/target" 2>/dev/null; then
+      cp -f "${SCRIPT_DIR}/target/release/codeatlas" "$BIN_TARGET"
+      chmod 755 "$BIN_TARGET"
+      INSTALLED=true
+    else
+      log_warn "Local source compilation failed. Falling back to alternative installation methods..."
+    fi
   else
     log_warn "Cargo not found in PATH for local compilation."
   fi
 fi
 
 # If not installed from local source, try cargo install from crates.io
-if [ "$INSTALLED" = false ] && command -v cargo >/dev/null 2>&1; then
+if [[ "$INSTALLED" = false ]] && command -v cargo >/dev/null 2>&1; then
   log_info "Installing codeatlas from crates.io via Cargo..."
   INSTALL_ROOT="$(dirname "$INSTALL_DIR")"
-  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force 2>/dev/null && [ -f "$BIN_TARGET" ]; then
+  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force 2>/dev/null && [[ -f "$BIN_TARGET" ]]; then
     INSTALLED=true
   else
     log_warn "cargo install from crates.io not available or package in publish queue."
@@ -136,21 +139,21 @@ if [ "$INSTALLED" = false ] && command -v cargo >/dev/null 2>&1; then
 fi
 
 # Fallback: Download prebuilt binary release from GitHub if available
-if [ "$INSTALLED" = false ]; then
+if [[ "$INSTALLED" = false ]]; then
   RELEASE_REPO="giauphan/codeatlas-mcp-rust"
   TARGET_TRIPLE=""
 
-  if [ "$OS_TYPE" = "darwin" ] && [ "$ARCH_TYPE" = "aarch64" ]; then
+  if [[ "$OS_TYPE" == "darwin" && "$ARCH_TYPE" == "aarch64" ]]; then
     TARGET_TRIPLE="aarch64-apple-darwin"
-  elif [ "$OS_TYPE" = "darwin" ] && [ "$ARCH_TYPE" = "x86_64" ]; then
+  elif [[ "$OS_TYPE" == "darwin" && "$ARCH_TYPE" == "x86_64" ]]; then
     TARGET_TRIPLE="x86_64-apple-darwin"
-  elif [ "$OS_TYPE" = "linux" ] && [ "$ARCH_TYPE" = "x86_64" ]; then
+  elif [[ "$OS_TYPE" == "linux" && "$ARCH_TYPE" == "x86_64" ]]; then
     TARGET_TRIPLE="x86_64-unknown-linux-gnu"
-  elif [ "$OS_TYPE" = "linux" ] && [ "$ARCH_TYPE" = "aarch64" ]; then
+  elif [[ "$OS_TYPE" == "linux" && "$ARCH_TYPE" == "aarch64" ]]; then
     TARGET_TRIPLE="aarch64-unknown-linux-gnu"
   fi
 
-  if [ -n "$TARGET_TRIPLE" ]; then
+  if [[ -n "$TARGET_TRIPLE" ]]; then
     DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/latest/download/codeatlas-${TARGET_TRIPLE}.tar.gz"
     log_info "Attempting to download prebuilt binary: ${DOWNLOAD_URL}"
 
@@ -159,14 +162,14 @@ if [ "$INSTALLED" = false ]; then
 
     HTTP_STATUS=""
     if command -v curl >/dev/null 2>&1; then
-      HTTP_STATUS="$(curl -sSL -w "%{http_code}" -o "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" || true)"
+      HTTP_STATUS="$(curl --proto '=https' --proto-redir '=https' -sSL -w "%{http_code}" -o "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" || true)"
     elif command -v wget >/dev/null 2>&1; then
-      wget -q -O "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" && HTTP_STATUS="200" || HTTP_STATUS="404"
+      wget --https-only -q -O "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" && HTTP_STATUS="200" || HTTP_STATUS="404"
     fi
 
-    if [ "$HTTP_STATUS" = "200" ] && [ -s "${TEMP_DIR}/codeatlas.tar.gz" ]; then
+    if [[ "$HTTP_STATUS" == "200" && -s "${TEMP_DIR}/codeatlas.tar.gz" ]]; then
       tar -xzf "${TEMP_DIR}/codeatlas.tar.gz" -C "$TEMP_DIR"
-      if [ -f "${TEMP_DIR}/codeatlas" ]; then
+      if [[ -f "${TEMP_DIR}/codeatlas" ]]; then
         cp -f "${TEMP_DIR}/codeatlas" "$BIN_TARGET"
         chmod 755 "$BIN_TARGET"
         INSTALLED=true
@@ -176,7 +179,7 @@ if [ "$INSTALLED" = false ]; then
 fi
 
 # If still not installed, prompt user to install Rust toolchain
-if [ "$INSTALLED" = false ]; then
+if [[ "$INSTALLED" = false ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
     log_warn "Rust/Cargo was not detected on this system."
     echo ""
@@ -197,7 +200,7 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
   log_warn "${INSTALL_DIR} is not in your current PATH!"
   echo ""
   echo "Add it to your shell profile to run 'codeatlas' from anywhere:"
-  if [ -n "${ZSH_VERSION:-}" ] || [ -f "${HOME}/.zshrc" ]; then
+  if [[ -n "${ZSH_VERSION:-}" || -f "${HOME}/.zshrc" ]]; then
     echo "  ${BOLD}echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc && source ~/.zshrc${RESET}"
   else
     echo "  ${BOLD}echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.bashrc && source ~/.bashrc${RESET}"
@@ -216,13 +219,13 @@ echo ""
 "$BIN_TARGET" doctor || true
 
 # 6. Optional Client Integrations
-if [ "$SETUP_CLAUDE" = true ]; then
+if [[ "$SETUP_CLAUDE" = true ]]; then
   echo ""
   log_info "Configuring Claude Code integration..."
   "$BIN_TARGET" setup-claude || { log_error "Claude Code integration setup failed."; exit 1; }
 fi
 
-if [ "$SETUP_ZED" = true ]; then
+if [[ "$SETUP_ZED" = true ]]; then
   echo ""
   log_info "Configuring Zed editor MCP integration..."
   "$BIN_TARGET" setup-zed || { log_error "Zed editor MCP setup failed."; exit 1; }

@@ -174,9 +174,10 @@ Add CodeAtlas to your MCP configuration file (`~/.config/Claude/claude_desktop_c
 To remove CodeAtlas:
 
 ```bash
-# If installed via Cargo:
+# If installed via cargo install from crates.io:
 cargo uninstall codeatlas
 
-# If installed via install.sh to ~/.local/bin:
-rm -f ~/.local/bin/codeatlas
+# If installed via install.sh (or copied directly):
+# Remove the binary from your installation directory (e.g. ~/.cargo/bin or ~/.local/bin):
+rm -f ~/.cargo/bin/codeatlas ~/.local/bin/codeatlas
 ```

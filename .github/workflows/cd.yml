@@ -76,17 +76,20 @@ jobs:
             exit 0
           fi
 
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "::error::Publishing to crates.io requires running on a git tag (e.g. v3.0.1). Manual runs on branches are only permitted with dry_run: true."
+            exit 1
+          fi
+
+          TAG_NAME="${GITHUB_REF_NAME:-}"
           for CRATE in "${CRATES[@]}"; do
             VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$CRATE\") | .version")
             echo "--------------------------------------------------------"
             echo "Processing $CRATE v$VERSION..."
 
-            if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-              TAG_NAME="${GITHUB_REF_NAME:-}"
-              if [ "$TAG_NAME" != "v$VERSION" ]; then
-                echo "::error::Tag '$TAG_NAME' does not match crate $CRATE manifest version 'v$VERSION'"
-                exit 1
-              fi
+            if [ "$TAG_NAME" != "v$VERSION" ]; then
+              echo "::error::Tag '$TAG_NAME' does not match crate $CRATE manifest version 'v$VERSION'"
+              exit 1
             fi
 
             STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: codeatlas-cd (${GITHUB_REPOSITORY:-giauphan/codeatlas-mcp-rust})" "https://crates.io/api/v1/crates/$CRATE/$VERSION" || true)
