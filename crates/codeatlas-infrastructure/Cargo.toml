@@ -5,10 +5,12 @@ edition = "2021"
 authors = ["Giau Phan <giauphan012@gmail.com>"]
 description = "Infrastructure engines: Tree-sitter parsers, petgraph store, file watchers, and caching"
 license = "MIT"
+repository = "https://github.com/giauphan/codeatlas-mcp-rust"
+homepage = "https://github.com/giauphan/codeatlas-mcp-rust"
 
 [dependencies]
-codeatlas-domain = { path = "../codeatlas-domain" }
-codeatlas-application = { path = "../codeatlas-application" }
+codeatlas-domain = { path = "../codeatlas-domain", version = "3.0.1" }
+codeatlas-application = { path = "../codeatlas-application", version = "3.0.1" }
 
 petgraph = "0.6"
 tree-sitter = "0.22"

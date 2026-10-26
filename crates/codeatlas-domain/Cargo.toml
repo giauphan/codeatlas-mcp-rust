@@ -5,6 +5,8 @@ edition = "2021"
 authors = ["Giau Phan <giauphan012@gmail.com>"]
 description = "Pure domain models, entities, value objects, and port traits for CodeAtlas"
 license = "MIT"
+repository = "https://github.com/giauphan/codeatlas-mcp-rust"
+homepage = "https://github.com/giauphan/codeatlas-mcp-rust"
 
 [dependencies]
 lasso = { version = "0.7", features = ["multi-threaded"] }
