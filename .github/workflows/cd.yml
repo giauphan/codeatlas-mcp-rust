@@ -82,15 +82,21 @@ jobs:
           fi
 
           TAG_NAME="${GITHUB_REF_NAME:-}"
+          echo "Preflight validation: Verifying all crate manifest versions match tag '$TAG_NAME'..."
           for CRATE in "${CRATES[@]}"; do
             VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$CRATE\") | .version")
-            echo "--------------------------------------------------------"
-            echo "Processing $CRATE v$VERSION..."
-
             if [ "$TAG_NAME" != "v$VERSION" ]; then
               echo "::error::Tag '$TAG_NAME' does not match crate $CRATE manifest version 'v$VERSION'"
               exit 1
             fi
+            echo "✓ $CRATE v$VERSION matches tag $TAG_NAME"
+          done
+
+          echo "Preflight checks passed. Beginning publication..."
+          for CRATE in "${CRATES[@]}"; do
+            VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name==\"$CRATE\") | .version")
+            echo "--------------------------------------------------------"
+            echo "Processing $CRATE v$VERSION..."
 
             STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: codeatlas-cd (${GITHUB_REPOSITORY:-giauphan/codeatlas-mcp-rust})" "https://crates.io/api/v1/crates/$CRATE/$VERSION" || true)
             if [ "$STATUS_CODE" = "200" ]; then
