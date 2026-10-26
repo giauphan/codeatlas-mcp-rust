@@ -65,7 +65,7 @@ jobs:
             "codeatlas-application"
             "codeatlas-infrastructure"
             "codeatlas-adapters"
-            "codeatlas"
+            "codeatlas-cli"
           )
 
           if [ "$DRY_RUN" = "true" ]; then
@@ -116,7 +116,7 @@ jobs:
             echo "Publishing $CRATE v$VERSION to crates.io..."
             cargo publish -p "$CRATE" --locked
 
-            if [ "$CRATE" != "codeatlas" ]; then
+            if [ "$CRATE" != "codeatlas-cli" ]; then
               echo "Waiting 25s for crates.io index to update before publishing dependents..."
               sleep 25
             fi

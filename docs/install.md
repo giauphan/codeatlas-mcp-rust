@@ -47,16 +47,16 @@ tmp=$(mktemp) && { curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubuserc
 
 ## 3. Installation via Cargo (crates.io)
 
-If you already have Rust and Cargo installed, you can install CodeAtlas directly from [crates.io](https://crates.io/crates/codeatlas):
+If you already have Rust and Cargo installed, you can install CodeAtlas directly from [crates.io](https://crates.io/crates/codeatlas-cli):
 
 ```bash
-cargo install codeatlas --locked
+cargo install codeatlas-cli --locked
 ```
 
 To update to the latest release:
 
 ```bash
-cargo install codeatlas --locked --force
+cargo install codeatlas-cli --locked --force
 ```
 
 > **Note**: Make sure `~/.cargo/bin` is in your `PATH`:

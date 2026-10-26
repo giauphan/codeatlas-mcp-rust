@@ -145,9 +145,9 @@ if [[ "$INSTALLED" = false ]]; then
     exit 1
   fi
 
-  log_info "Installing codeatlas from crates.io via Cargo..."
+  log_info "Installing codeatlas-cli from crates.io via Cargo..."
   INSTALL_ROOT="$(dirname "$INSTALL_DIR")"
-  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force && [[ -f "$BIN_TARGET" ]]; then
+  if cargo install codeatlas-cli --locked --root "$INSTALL_ROOT" --force && [[ -f "$BIN_TARGET" ]]; then
     INSTALLED=true
   else
     log_error "Failed to install codeatlas from crates.io via Cargo."

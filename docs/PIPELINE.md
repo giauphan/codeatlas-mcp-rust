@@ -45,5 +45,5 @@ The CD pipeline in [`.github/workflows/cd.yml`](../.github/workflows/cd.yml) aut
    - `codeatlas-application`
    - `codeatlas-infrastructure`
    - `codeatlas-adapters`
-   - `codeatlas` (root CLI)
+   - `codeatlas-cli` (root CLI)
 4. **Token Authentication**: Authenticates with `CARGO_REGISTRY_TOKEN` configured in GitHub Repository Secrets.
