@@ -28,16 +28,6 @@ use std::sync::Arc;
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    if let Some(cmd) = cli.command {
-        match cmd {
-            Commands::Doctor => run_doctor()?,
-            Commands::SetupZed { force } => run_setup_zed(force)?,
-            Commands::SetupClaude { force } => run_setup_claude(force)?,
-            Commands::RouteTask { task } => run_task_router(&task)?,
-        }
-        return Ok(());
-    }
-
     // 1. Initialize Infrastructure Singletons
     let parser = Arc::new(TreeSitterParserEngine::new());
     let graph_repo = Arc::new(PetgraphStore::new());
@@ -47,6 +37,53 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Compose Application Layer Use Cases
     let brain_uc = Arc::new(SecondBrainUseCase::new(cloud_sync.clone()));
+
+    if let Some(cmd) = cli.command {
+        match cmd {
+            Commands::Doctor => run_doctor()?,
+            Commands::Init | Commands::Setup => {
+                run_doctor()?;
+                println!();
+                run_setup_claude(false)?;
+            }
+            Commands::SetupZed { force } => run_setup_zed(force)?,
+            Commands::SetupClaude { force } => run_setup_claude(force)?,
+            Commands::RouteTask { task } => run_task_router(&task)?,
+            Commands::BrainContext { task } => {
+                let ctx = brain_uc
+                    .load_brain_context(&task, None)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                println!("{}", serde_json::to_string_pretty(&ctx)?);
+            }
+            Commands::BrainSave { content, category } => {
+                let now_nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos();
+                let project_name = cli
+                    .project_dir
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("default");
+                let dream = codeatlas_domain::entities::brain::DreamMemory {
+                    id: format!("cli_dream_{:x}", now_nanos),
+                    category,
+                    content,
+                    project: project_name.to_string(),
+                    timestamp: codeatlas_adapters::mcp::tools::current_rfc3339(),
+                    score: None,
+                };
+                brain_uc
+                    .save_dream(&dream)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                println!("✓ Dream memory saved successfully.");
+            }
+        }
+        return Ok(());
+    }
 
     if cli.sync_dreams {
         let project_name = cli

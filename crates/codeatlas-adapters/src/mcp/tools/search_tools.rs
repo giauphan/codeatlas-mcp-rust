@@ -92,7 +92,83 @@ pub fn register_search_tools(
         }),
         GetCodeSnippetHandler {
             search_uc,
-            query_uc,
+            query_uc: query_uc.clone(),
         },
     );
+
+    registry.register(
+        "code_search",
+        "Search source file contents across the entire project for any text string.",
+        json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "project": { "type": "string" }
+            },
+            "required": ["query"]
+        }),
+        CodeSearchHandler { query_uc },
+    );
+}
+
+struct CodeSearchHandler {
+    query_uc: Arc<QueryGraphUseCase>,
+}
+
+#[async_trait]
+impl ToolHandler for CodeSearchHandler {
+    async fn call(&self, args: Value) -> Result<String, String> {
+        let query = args
+            .get("query")
+            .and_then(|q| q.as_str())
+            .filter(|q| !q.trim().is_empty())
+            .ok_or_else(|| "Missing required argument: query".to_string())?;
+        let project_arg = args.get("project").and_then(|p| p.as_str());
+        let project_id = resolve_project(&self.query_uc, project_arg).await;
+
+        let analysis = self
+            .query_uc
+            .get_analysis(&project_id)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut matches = Vec::new();
+        let query_lower = query.to_lowercase();
+
+        let mut searched_files = std::collections::HashSet::new();
+        if let Some(res) = analysis {
+            for node in &res.graph.nodes {
+                if let Some(fp) = &node.file_path {
+                    if searched_files.insert(fp.clone()) {
+                        let path = std::path::Path::new(fp);
+                        if let Ok(content) = std::fs::read_to_string(path) {
+                            for (line_idx, line) in content.lines().enumerate() {
+                                if line.to_lowercase().contains(&query_lower) {
+                                    matches.push(json!({
+                                        "file": fp,
+                                        "line": line_idx + 1,
+                                        "content": line.trim(),
+                                    }));
+                                    if matches.len() >= 50 {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if matches.len() >= 50 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let res = json!({
+            "project": project_id.as_str(),
+            "query": query,
+            "matches": matches,
+            "count": matches.len(),
+        });
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+    }
 }

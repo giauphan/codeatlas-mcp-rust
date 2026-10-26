@@ -63,11 +63,14 @@ impl SecurityScanUseCase {
         let mut findings = Vec::new();
         let secret_keywords = [
             "api_key",
+            "apikey",
             "secret",
             "password",
             "token",
             "private_key",
+            "privatekey",
             "access_key",
+            "accesskey",
         ];
         let unsafe_functions = [
             "eval",
@@ -80,14 +83,13 @@ impl SecurityScanUseCase {
 
         let mut node_to_filepath: HashMap<String, String> = HashMap::new();
 
-        // 1. Scan nodes for variables with hardcoded secrets or unsafe function definitions
+        // 1. Scan nodes for variables with hardcoded secrets
         for node in &analysis.graph.nodes {
             let file_path = node
                 .file_path
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
             node_to_filepath.insert(node.id.clone(), file_path.clone());
-            node_to_filepath.insert(node.label.clone(), file_path.clone());
 
             if Self::is_test_file(&file_path) {
                 continue;
@@ -99,28 +101,11 @@ impl SecurityScanUseCase {
                 for secret in &secret_keywords {
                     if label_lower.contains(secret) {
                         findings.push(SecurityFinding {
-                            severity: "HIGH".to_string(),
-                            finding_type: "HARDCODED_SECRET".to_string(),
+                            severity: "LOW".to_string(),
+                            finding_type: "SUSPICIOUS_VARIABLE_NAME".to_string(),
                             message: format!(
-                                "Potential hardcoded secret found in variable: {}",
-                                node.label
-                            ),
-                            file_path: file_path.clone(),
-                            line: node.line,
-                            snippet: None,
-                        });
-                        break;
-                    }
-                }
-            } else if node.node_type == "function" {
-                for dangerous in &unsafe_functions {
-                    if label_lower == *dangerous {
-                        findings.push(SecurityFinding {
-                            severity: "CRITICAL".to_string(),
-                            finding_type: "UNSAFE_FUNCTION".to_string(),
-                            message: format!(
-                                "Use of potentially dangerous function: {}",
-                                node.label
+                                "Variable name '{}' matches secret keyword '{}'; verify it does not contain a hardcoded value",
+                                node.label, secret
                             ),
                             file_path: file_path.clone(),
                             line: node.line,
@@ -135,10 +120,10 @@ impl SecurityScanUseCase {
         // 2. Scan call links to identify invocations of dangerous functions
         for link in &analysis.graph.links {
             if link.link_type == "call" {
-                let source_path = node_to_filepath
-                    .get(&link.source)
-                    .map(|s| s.as_str())
-                    .unwrap_or(link.source.as_str());
+                let source_path = match node_to_filepath.get(&link.source) {
+                    Some(p) => p.as_str(),
+                    None => continue,
+                };
 
                 if Self::is_test_file(source_path) {
                     continue;

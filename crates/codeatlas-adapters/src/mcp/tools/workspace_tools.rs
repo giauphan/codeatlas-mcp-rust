@@ -192,4 +192,113 @@ pub fn register_workspace_tools(
         }),
         RouteTaskHandler,
     );
+
+    registry.register(
+        "run_script",
+        "Run a project script from package.json or Cargo.toml.",
+        json!({
+            "type": "object",
+            "properties": {
+                "script": { "type": "string" },
+                "project": { "type": "string" }
+            },
+            "required": ["script"]
+        }),
+        RunScriptHandler,
+    );
+
+    registry.register(
+        "git_changes",
+        "Get recent git changes: uncommitted files and recent commit history.",
+        json!({
+            "type": "object",
+            "properties": {
+                "commits": { "type": "number" },
+                "project": { "type": "string" }
+            }
+        }),
+        GitChangesHandler,
+    );
+}
+
+struct RunScriptHandler;
+#[async_trait]
+impl ToolHandler for RunScriptHandler {
+    async fn call(&self, args: Value) -> Result<String, String> {
+        let script = args
+            .get("script")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| "Missing required argument: script".to_string())?;
+
+        if !script
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(
+                "Invalid script name: only alphanumeric, hyphen, and underscore allowed"
+                    .to_string(),
+            );
+        }
+
+        let is_npm = std::path::Path::new("package.json").exists();
+        let is_cargo = std::path::Path::new("Cargo.toml").exists();
+
+        let (cmd, cmd_args) = if is_npm {
+            ("npm", vec!["run", script])
+        } else if is_cargo {
+            ("cargo", vec![script])
+        } else {
+            return Err(
+                "Neither package.json nor Cargo.toml found in current directory".to_string(),
+            );
+        };
+
+        let output = std::process::Command::new(cmd)
+            .args(&cmd_args)
+            .output()
+            .map_err(|e| format!("Failed to execute script: {}", e))?;
+
+        let res = json!({
+            "command": format!("{} {}", cmd, cmd_args.join(" ")),
+            "exitCode": output.status.code().unwrap_or(-1),
+            "stdout": String::from_utf8_lossy(&output.stdout).trim(),
+            "stderr": String::from_utf8_lossy(&output.stderr).trim(),
+        });
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+    }
+}
+
+struct GitChangesHandler;
+#[async_trait]
+impl ToolHandler for GitChangesHandler {
+    async fn call(&self, args: Value) -> Result<String, String> {
+        let commits = args.get("commits").and_then(|c| c.as_u64()).unwrap_or(5);
+        let commits_arg = format!("-{}", commits.min(20));
+
+        let status_out = std::process::Command::new("git")
+            .args(["status", "-s"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let log_out = std::process::Command::new("git")
+            .args(["log", &commits_arg, "--oneline"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let branch_out = std::process::Command::new("git")
+            .args(["branch", "--show-current"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+
+        let res = json!({
+            "branch": branch_out,
+            "uncommittedChanges": status_out,
+            "recentCommits": log_out,
+        });
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+    }
 }
