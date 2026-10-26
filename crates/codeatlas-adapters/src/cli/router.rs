@@ -3,10 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "codeatlas")]
-#[command(
-    version,
-    about = "High-performance Rust MCP server for CodeAtlas"
-)]
+#[command(version, about = "High-performance Rust MCP server for CodeAtlas")]
 pub struct Cli {
     #[arg(long = "projectDir", global = true)]
     pub project_dir: Option<PathBuf>,
