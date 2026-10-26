@@ -148,6 +148,26 @@ CodeAtlas MCP Server operates locally by default over standard I/O with strict b
 
 ---
 
+## ⚠️ Operational Considerations & Boundaries
+
+CodeAtlas MCP Server is designed as a local-first, low-overhead native binary. Keep the following operational boundaries in mind:
+
+- **Local-First & Zero Database Footprint**:
+  - The server operates entirely standalone and requires **no database servers** (such as Oracle, PostgreSQL, or Redis).
+  - All AST dependency graphs, call hierarchies, and indexing structures are maintained in-memory using Petgraph and backed by local filesystem caches (`~/.codeatlas/`).
+  - Optional cloud features (dream memory and immune genome synchronization) connect to upstream CodeAtlas Platform services via HTTPS only when `CODEATLAS_API_KEY` and `CODEATLAS_API_URL` are explicitly configured.
+- **Single-Tenant Process Isolation**:
+  - CodeAtlas executes as a dedicated child process attached to your AI client (Claude Desktop, Zed, Cursor, VS Code) via standard input/output (`stdio`).
+  - Process execution boundaries, file system permissions, and workspace access align directly with the user account running the IDE. Multi-user isolation is enforced by the host operating system.
+- **Network Boundaries & No Open Ports**:
+  - CodeAtlas does not listen on any network ports or expose an HTTP/SSE server. Reverse proxies (such as Nginx) and external firewall port forwarding are unnecessary.
+  - Outbound cloud communication is strictly allowlisted to official CodeAtlas domains (`*.codeatlas.ai`, `opencode.ai`) or local loopback (`127.0.0.1`, `localhost`). Non-local unencrypted HTTP traffic is rejected.
+- **Static Analysis Scope**:
+  - Code analysis is performed statically using Tree-sitter AST parsers. It does not execute untrusted user code or evaluate runtime bytecode.
+  - Repository graph size is bound by available host RAM. Concurrency and allocations are optimized with Tokio and jemalloc.
+
+---
+
 ## 📚 Resources & Community
 
 - 📖 [Development Guide](./docs/DEVELOPMENT.md) — Local development workflow and commands.

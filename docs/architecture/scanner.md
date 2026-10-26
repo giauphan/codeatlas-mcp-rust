@@ -42,6 +42,6 @@ The SQL rule is a name heuristic: it does not inspect query construction or veri
 
 ## Data and related tools
 
-`scan_enterprise_vulnerabilities` calls `discoverProjectsAsync`, then loads each selected analysis and returns a summary with finding counts, graph-derived health numbers, and details. It does not write scanner findings to an Oracle database. The separate `scan_immune_genes`, `save_immune_gene`, and Genome tools call the configured CodeAtlas API and require a resolved API key; they are not part of this local static scan. See [the architecture overview](overview.md) for credential and destination behavior.
+`scan_enterprise_vulnerabilities` scans the in-memory graph models and returns structured risk findings. It operates locally without writing findings to any database. The separate `scan_immune_genes`, `save_immune_gene`, and Genome tools communicate with the configured CodeAtlas API over HTTPS when cloud credentials are provided. See [the architecture overview](overview.md) for credential and destination behavior.
 
-Tool registration and implementation: [`src/presentation/mcpServer.ts`](../../src/presentation/mcpServer.ts). Static and optional AI scan implementation: [`src/securityScanner.ts`](../../src/securityScanner.ts).
+Tool registration and MCP delivery: [`crates/codeatlas-adapters/src/mcp/tools/security_tools.rs`](../../crates/codeatlas-adapters/src/mcp/tools/security_tools.rs). Security scan use case logic: [`crates/codeatlas-application/src/use_cases/security_scan.rs`](../../crates/codeatlas-application/src/use_cases/security_scan.rs).

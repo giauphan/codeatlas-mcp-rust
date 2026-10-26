@@ -1,37 +1,60 @@
 # MCP Server Architecture
 
-CodeAtlas MCP Server is a Node.js MCP process. The current entry point connects with the MCP SDK's standard-I/O transport; it does not start an HTTP or SSE server. The MCP client supplies workspace roots when available. CodeAtlas discovers eligible projects, parses source locally, and exposes analysis and search tools through MCP.
+CodeAtlas MCP Server is a high-performance, native Rust Model Context Protocol (MCP) server. It connects to AI clients (such as Claude Desktop, Zed, Cursor, and VS Code) through standard input/output (`stdio`) using JSON-RPC 2.0.
+
+The codebase strictly adheres to **Clean Architecture & Domain-Driven Design (DDD)** across 5 modular crates.
+
+---
+
+## 🏛️ Clean Architecture Layers
 
 ```mermaid
 flowchart TD
-    Client[MCP client / IDE] <-->|MCP over stdio| Entry[index.ts]
-    Entry --> Watcher[Workspace discovery and file watcher]
-    Entry --> Tools[Registered MCP tools]
-    Watcher --> Parser[CodeAnalyzer and language parsers]
-    Tools --> Parser
-    Parser --> Cache[In-memory analysis cache]
-    Tools --> Cache
-    Cache --> Local[Local analysis and graph tools]
-    Parser -->|when configured| Cloud[CodeAtlas API]
-    Tools -->|cloud and Genome tools, when configured| Cloud
-    Tools -->|optional explicit AI scan| AI[Configured AI endpoint]
+    Client["AI IDE / MCP Client (Claude, Zed, Cursor)"] <-->|JSON-RPC over stdio| CLI["Root Binary (codeatlas-cli)"]
+    CLI --> Adapters["Interface Adapters (crates/codeatlas-adapters)"]
+    Adapters --> Application["Application Use Cases (crates/codeatlas-application)"]
+    Application --> Domain["Pure Domain Entities & Ports (crates/codeatlas-domain)"]
+    Application -.->|Inbound/Outbound Ports| Infra["Infrastructure Engines (crates/codeatlas-infrastructure)"]
+    Adapters --> Infra
+
+    subgraph Infrastructure
+      TS["Tree-sitter AST Parsers"]
+      PG["Petgraph In-Memory Store"]
+      CW["Workspace Watcher & Cache"]
+    end
 ```
 
-The analysis graph is held in process memory. The server also stores a project-path registry and diagnostics under `~/.codeatlas/`; it does not save the generated analysis graph to `.codeatlas/analysis.json` in this flow. Project discovery can use the workspace, `.codeatlas` project markers, and the local registry. The watcher re-indexes eligible file changes and triggers the same background sync path.
+### Layer Responsibilities
 
-Cloud behavior is conditional on credentials and configuration. Analysis calls and watcher updates attempt to POST analysis results to `CODEATLAS_API_URL`; with no resolved API key, the local analysis remains available in memory and the cloud sync is skipped with an error. Other tools for project memory and Genome call the configured API directly and require an API key. During normal MCP startup, the entry point loads `.env` from the current directory and then `~/.codeatlas/.env` without overriding existing values. The key is read first from `CODEATLAS_API_KEY`, then from recognized local MCP client configuration files. CLI commands are routed before this dotenv loading. The API base URL must use HTTP or HTTPS and be a recognized CodeAtlas, OpenCode, or local host; other hosts require `CODEATLAS_ALLOW_CUSTOM_URL=true`. Non-local HTTP is rejected, so remote endpoints require HTTPS. Cloud sync uses Node's HTTP(S) request clients; Genome and configured AI requests reject redirects.
+| Layer | Crate | Responsibilities |
+| :--- | :--- | :--- |
+| **Domain** | `codeatlas-domain` | Pure domain entities (`Project`, `CodeEntity`, `DependencyEdge`), value objects, and port traits (`AnalysisEnginePort`, `GraphStorePort`, `PlatformClientPort`). Zero external runtime dependencies. |
+| **Application** | `codeatlas-application` | Orchestrates business workflows: `AnalyzeProjectUseCase`, `QueryGraphUseCase`, `SearchCodeUseCase`, `SecurityScanUseCase`, `SecondBrainUseCase`, and `ManageAdrUseCase`. |
+| **Infrastructure**| `codeatlas-infrastructure`| Concrete port implementations: multi-language Tree-sitter parsers (Rust, TypeScript, JavaScript, Python, PHP), Petgraph directed graph store, file-system scanners, and in-memory caches. |
+| **Adapters** | `codeatlas-adapters` | Delivery mechanics: MCP stdio transport, JSON-RPC 2.0 serialization/dispatch, CLI command routing (`doctor`, `setup-claude`, `setup-zed`), and outbound HTTPS client. |
+| **Binary Entry** | `codeatlas-cli` | Root executable (`src/main.rs`) composing all dependency injection graphs with Tokio async runtime and jemalloc memory management. |
 
-An optional AI security scan runs only when both `CODEATLAS_SCAN_AI_URL` (or `OPENCODE_BASE_URL`) and its corresponding key are configured. It accepts HTTPS URLs and HTTP only for loopback hosts, rejects redirects, and sends up to five CRITICAL/HIGH finding summaries (including paths and line numbers), not source-file contents. This is a separately configured destination from the CodeAtlas API.
+---
 
-`CODEATLAS_MULTI_TENANT` changes project discovery and `checkAuth` behavior in the service code. The current stdio entry point does not establish a network authentication context or create an HTTP/SSE listener, so those service branches do not by themselves provide a deployed multi-tenant server.
+## 💾 Storage & Persistence Model
 
-| Area | Current implementation |
-|---|---|
-| Parsing | Local TypeScript/JavaScript, Python, and PHP analysis through parser modules |
-| Graph and search | In-memory project graph exposed by registered MCP tools |
-| Watcher | Watches discovered workspace paths and incrementally re-indexes changes |
-| Cloud | Optional CodeAtlas API calls, gated by URL configuration and resolved credentials |
-| AI scan | Optional configured endpoint; sends a small summary of critical/high findings |
-| Persistence | Project paths in `~/.codeatlas/registered_projects.json`, logs in `~/.codeatlas/mcp.log`, plus any client configuration that contains credentials |
+- **Local-First & In-Memory Graph**:
+  - The dependency graph, call hierarchies, and entity metadata are loaded and indexed in-memory using Petgraph.
+  - No external database server (Oracle, PostgreSQL, MySQL, Redis) is required.
+  - Project registration markers and diagnostics are stored in user-isolated directories under `~/.codeatlas/`.
+- **Optional Cloud Synchronization**:
+  - If `CODEATLAS_API_KEY` and `CODEATLAS_API_URL` are provided in the environment, the server can synchronize dream memories and immune genes with an upstream CodeAtlas Platform API over HTTPS.
+  - Outbound requests are strictly allowlisted to official CodeAtlas domains (`*.codeatlas.ai`, `opencode.ai`) or local loopback (`127.0.0.1`, `localhost`). Non-local unencrypted HTTP traffic is rejected.
 
-Tool names and schemas are registered in [`src/presentation/mcpServer.ts`](../../src/presentation/mcpServer.ts). The canonical CI workflow and its checks are documented in [`PIPELINE.md`](../PIPELINE.md).
+---
+
+## 🔒 Process & Security Boundaries
+
+1. **Stdio Execution Model**:
+   - The server runs as a dedicated child process attached to the client IDE.
+   - It exposes no network listening ports, preventing unauthorized network ingress.
+2. **Single-Tenant OS Permissions**:
+   - The process executes with the privileges of the local user running the editor.
+   - Access is restricted to the workspace directories configured by the client.
+3. **Static Analysis Safety**:
+   - Code parsing is performed statically without executing code files or evaluating runtime bytecode.
