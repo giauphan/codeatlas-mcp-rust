@@ -213,7 +213,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "codeatlas"
-version = "3.0.1"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "codeatlas-adapters"
-version = "3.0.1"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "codeatlas-application"
-version = "3.0.1"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "codeatlas-domain",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "codeatlas-domain"
-version = "3.0.1"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "lasso",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "codeatlas-infrastructure"
-version = "3.0.1"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",

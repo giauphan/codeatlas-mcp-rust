@@ -1,6 +1,6 @@
 [package]
 name = "codeatlas-domain"
-version = "3.0.1"
+version = "0.3.1"
 edition = "2021"
 authors = ["Giau Phan <giauphan012@gmail.com>"]
 description = "Pure domain models, entities, value objects, and port traits for CodeAtlas"

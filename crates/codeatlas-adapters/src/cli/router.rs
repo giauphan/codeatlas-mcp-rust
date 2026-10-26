@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(name = "codeatlas")]
 #[command(
-    version = "3.0.1",
+    version,
     about = "High-performance Rust MCP server for CodeAtlas"
 )]
 pub struct Cli {

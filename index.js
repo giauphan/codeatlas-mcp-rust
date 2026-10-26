@@ -16,7 +16,7 @@ export function getBinaryPath() {
   return candidates.find((p) => existsSync(p)) ?? null;
 }
 
-let pkgVersion = "3.0.1";
+let pkgVersion = "0.3.1";
 try {
   const pkg = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8"));
   if (pkg.version) {

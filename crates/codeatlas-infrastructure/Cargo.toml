@@ -1,6 +1,6 @@
 [package]
 name = "codeatlas-infrastructure"
-version = "3.0.1"
+version = "0.3.1"
 edition = "2021"
 authors = ["Giau Phan <giauphan012@gmail.com>"]
 description = "Infrastructure engines: Tree-sitter parsers, petgraph store, file watchers, and caching"
@@ -9,8 +9,8 @@ repository = "https://github.com/giauphan/codeatlas-mcp-rust"
 homepage = "https://github.com/giauphan/codeatlas-mcp-rust"
 
 [dependencies]
-codeatlas-domain = { path = "../codeatlas-domain", version = "3.0.1" }
-codeatlas-application = { path = "../codeatlas-application", version = "3.0.1" }
+codeatlas-domain = { path = "../codeatlas-domain", version = "0.3.1" }
+codeatlas-application = { path = "../codeatlas-application", version = "0.3.1" }
 
 petgraph = "0.6"
 tree-sitter = "0.22"

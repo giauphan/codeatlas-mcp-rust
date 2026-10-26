@@ -67,7 +67,7 @@ impl StdioTransport {
                     },
                     "serverInfo": {
                         "name": "codeatlas-mcp",
-                        "version": "3.0.1"
+                        "version": env!("CARGO_PKG_VERSION")
                     }
                 });
                 Some(JsonRpcResponse::success(req.id, result))

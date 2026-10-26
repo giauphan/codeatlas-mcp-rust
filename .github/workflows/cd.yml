@@ -81,7 +81,7 @@ jobs:
           fi
 
           if [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
-            echo "::error::Publishing to crates.io requires running on a git tag (e.g. v3.0.1). Manual runs on branches are only permitted with dry_run: true."
+            echo "::error::Publishing to crates.io requires running on a git tag (e.g. v0.3.1). Manual runs on branches are only permitted with dry_run: true."
             exit 1
           fi
 
