@@ -19,7 +19,7 @@ homepage = "https://github.com/giauphan/codeatlas-mcp-rust"
 readme = "README.md"
 keywords = ["mcp", "codeatlas", "ast", "clean-architecture", "developer-tools"]
 categories = ["development-tools", "command-line-utilities"]
-exclude = ["vendor", "scripts", "bin", "docs", "test"]
+exclude = ["bin", "docs", "test"]
 
 [dependencies]
 codeatlas-domain = { path = "crates/codeatlas-domain", version = "0.3.1" }
