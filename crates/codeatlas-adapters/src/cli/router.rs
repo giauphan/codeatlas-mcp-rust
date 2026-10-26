@@ -21,6 +21,8 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     Doctor,
+    Init,
+    Setup,
     SetupZed {
         #[arg(long)]
         force: bool,
@@ -31,5 +33,13 @@ pub enum Commands {
     },
     RouteTask {
         task: String,
+    },
+    BrainContext {
+        task: String,
+    },
+    BrainSave {
+        content: String,
+        #[arg(short, long, default_value = "knowledge")]
+        category: String,
     },
 }

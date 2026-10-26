@@ -168,4 +168,58 @@ pub fn register_dependency_tools(registry: &mut ToolRegistry, query_uc: Arc<Quer
         }),
         FeatureFlowHandler(query_uc.clone()),
     );
+
+    registry.register(
+        "impact_analysis",
+        "Full blast radius analysis for changing a symbol. Traces both callers and callees in one view.",
+        json!({
+            "type": "object",
+            "properties": {
+                "symbol": { "type": "string" },
+                "project": { "type": "string" }
+            },
+            "required": ["symbol"]
+        }),
+        ImpactAnalysisHandler(query_uc),
+    );
+}
+
+struct ImpactAnalysisHandler(Arc<QueryGraphUseCase>);
+#[async_trait]
+impl ToolHandler for ImpactAnalysisHandler {
+    async fn call(&self, args: Value) -> Result<String, String> {
+        let symbol = args
+            .get("symbol")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| "Missing required argument: symbol".to_string())?;
+        let project_arg = args.get("project").and_then(|p| p.as_str());
+        let project_id = resolve_project(&self.0, project_arg).await;
+
+        let callers = self
+            .0
+            .get_callers(&project_id, symbol)
+            .await
+            .map_err(|e| e.to_string())?;
+        let callees = self
+            .0
+            .get_callees(&project_id, symbol)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let callers_count = callers.len();
+        let callees_count = callees.len();
+        let blast_radius = callers_count + callees_count;
+
+        let res = json!({
+            "project": project_id.as_str(),
+            "symbol": symbol,
+            "blastRadiusScore": blast_radius,
+            "upstreamDependents": callers,
+            "upstreamCount": callers_count,
+            "downstreamDependencies": callees,
+            "downstreamCount": callees_count,
+        });
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+    }
 }

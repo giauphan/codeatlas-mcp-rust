@@ -5,6 +5,7 @@ use codeatlas_domain::value_objects::file_path::SanitizedPath;
 use rayon::prelude::*;
 use std::path::Path;
 
+use super::php_parser::PhpParser;
 use super::py_parser::PythonParser;
 use super::source_buffer::SourceBuffer;
 use super::ts_parser::TypeScriptParser;
@@ -27,7 +28,7 @@ impl Default for TreeSitterParserEngine {
 impl AstParserPort for TreeSitterParserEngine {
     fn supports_language(&self, path: &Path) -> bool {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        matches!(ext, "ts" | "tsx" | "js" | "jsx" | "py")
+        matches!(ext, "ts" | "tsx" | "js" | "jsx" | "py" | "php")
     }
 
     async fn parse_file(&self, path: &Path, content: &str) -> Result<ParsedFile, ParserError> {
@@ -44,6 +45,10 @@ impl AstParserPort for TreeSitterParserEngine {
             "py" => {
                 let mut p = PythonParser::new().map_err(ParserError::TreeSitter)?;
                 p.parse(path, content).map_err(ParserError::TreeSitter)?
+            }
+            "php" => {
+                let p = PhpParser::new();
+                p.parse(path, content)
             }
             _ => (Vec::new(), Vec::new()),
         };
@@ -78,6 +83,7 @@ impl AstParserPort for TreeSitterParserEngine {
                         let mut p = PythonParser::new().ok()?;
                         p.parse(path, content).ok()
                     }
+                    "php" => Some(PhpParser::new().parse(path, content)),
                     _ => None,
                 }
             })

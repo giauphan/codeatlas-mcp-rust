@@ -65,6 +65,13 @@ impl SecondBrainUseCase {
             .map_err(|e| SecondBrainError::Cloud(e.to_string()))
     }
 
+    pub async fn check_auth(&self) -> Result<bool, SecondBrainError> {
+        self.cloud_sync
+            .check_auth()
+            .await
+            .map_err(|e| SecondBrainError::Cloud(e.to_string()))
+    }
+
     pub async fn load_brain_context(
         &self,
         task: &str,

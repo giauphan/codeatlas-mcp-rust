@@ -446,5 +446,5 @@ with open(sp,"w") as f: json.dump(s,f,indent=2)
 print("Settings merged")
 PY
 
-command -v codeatlas-mcp >/dev/null 2>&1 || npm install -g codeatlas-mcp-server 2>/dev/null || true
+command -v codeatlas-mcp >/dev/null 2>&1 || npm install -g --ignore-scripts codeatlas-mcp-server 2>/dev/null || true
 echo "=== Setup Complete - Restart Claude to activate hooks ==="

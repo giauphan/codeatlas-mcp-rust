@@ -10,7 +10,7 @@ defaults:
     shell: bash
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-main
