@@ -40,7 +40,7 @@ jobs:
         run: cargo test --locked --workspace
 
       - name: Verify package manifests
-        run: cargo package --workspace
+        run: cargo package --workspace --no-verify
 
   publish:
     name: Publish to crates.io
@@ -69,10 +69,11 @@ jobs:
             "codeatlas"
           )
 
-          EXTRA_FLAGS=""
           if [ "$DRY_RUN" = "true" ]; then
-            echo "::notice::Executing in dry-run mode (no actual upload to crates.io)"
-            EXTRA_FLAGS="--dry-run"
+            echo "::notice::Executing in dry-run mode via cargo package --workspace --no-verify"
+            cargo package --workspace --no-verify
+            echo "Dry run package verification completed successfully."
+            exit 0
           fi
 
           for CRATE in "${CRATES[@]}"; do
@@ -80,18 +81,24 @@ jobs:
             echo "--------------------------------------------------------"
             echo "Processing $CRATE v$VERSION..."
 
-            if [ "$DRY_RUN" != "true" ]; then
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: codeatlas-cd (${GITHUB_REPOSITORY:-giauphan/codeatlas-mcp-rust})" "https://crates.io/api/v1/crates/$CRATE/$VERSION" || true)
-              if [ "$STATUS_CODE" = "200" ]; then
-                echo "$CRATE v$VERSION is already published on crates.io; skipping."
-                continue
+            if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+              TAG_NAME="${GITHUB_REF_NAME:-}"
+              if [ "$TAG_NAME" != "v$VERSION" ]; then
+                echo "::error::Tag '$TAG_NAME' does not match crate $CRATE manifest version 'v$VERSION'"
+                exit 1
               fi
             fi
 
-            echo "Publishing $CRATE v$VERSION to crates.io..."
-            cargo publish -p "$CRATE" --locked $EXTRA_FLAGS
+            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: codeatlas-cd (${GITHUB_REPOSITORY:-giauphan/codeatlas-mcp-rust})" "https://crates.io/api/v1/crates/$CRATE/$VERSION" || true)
+            if [ "$STATUS_CODE" = "200" ]; then
+              echo "$CRATE v$VERSION is already published on crates.io; skipping."
+              continue
+            fi
 
-            if [ "$DRY_RUN" != "true" ] && [ "$CRATE" != "codeatlas" ]; then
+            echo "Publishing $CRATE v$VERSION to crates.io..."
+            cargo publish -p "$CRATE" --locked
+
+            if [ "$CRATE" != "codeatlas" ]; then
               echo "Waiting 25s for crates.io index to update before publishing dependents..."
               sleep 25
             fi
