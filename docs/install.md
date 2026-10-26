@@ -23,7 +23,7 @@ This guide covers installation options for **macOS**, **Linux**, and **WSL** acr
 The easiest way to install CodeAtlas on macOS and Linux is using our official installer script:
 
 ```bash
-tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp"; rm -f "$tmp"
+tmp=$(mktemp) && { curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp"; ret=$?; rm -f "$tmp"; (exit $ret); }
 ```
 
 ### Automated Client Configuration Flags
@@ -31,14 +31,14 @@ tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercon
 You can pass post-install integration flags directly:
 
 ```bash
-# Install and automatically configure Claude Code hooks
-tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-claude; rm -f "$tmp"
+# Install and automatically configure Claude Desktop MCP settings
+tmp=$(mktemp) && { curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-claude; ret=$?; rm -f "$tmp"; (exit $ret); }
 
 # Install and automatically configure Zed Editor MCP settings
-tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-zed; rm -f "$tmp"
+tmp=$(mktemp) && { curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-zed; ret=$?; rm -f "$tmp"; (exit $ret); }
 
-# Configure both Claude and Zed
-tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-claude --setup-zed; rm -f "$tmp"
+# Configure both Claude Desktop and Zed
+tmp=$(mktemp) && { curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp" --setup-claude --setup-zed; ret=$?; rm -f "$tmp"; (exit $ret); }
 ```
 
 ---
@@ -122,15 +122,15 @@ Diagnostics complete: System is healthy.
 
 ## 6. Client & Editor Integrations
 
-### Claude Code
+### Claude Desktop
 
-CodeAtlas integrates with Claude Code to provide automatic AST analysis, task routing, and second-brain memory checkpoints:
+To configure CodeAtlas MCP for Claude Desktop automatically:
 
 ```bash
 codeatlas setup-claude
 ```
 
-This registers the native hooks into `~/.claude/settings.json`.
+This writes or updates the CodeAtlas MCP server entry in `~/.config/Claude/claude_desktop_config.json` on Linux or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS.
 
 ### Zed Editor
 
@@ -142,9 +142,9 @@ codeatlas setup-zed
 
 This adds the CodeAtlas MCP server definition to `~/.config/zed/settings.json`.
 
-### Cursor & Claude Desktop
+### Cursor
 
-Add CodeAtlas to your MCP configuration file (`~/.config/Claude/claude_desktop_config.json` on Linux or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+To configure CodeAtlas in Cursor, add it to your global MCP settings file (`~/.cursor/mcp.json`) or project-level file (`.cursor/mcp.json`):
 
 ```json
 {

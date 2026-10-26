@@ -4,7 +4,7 @@
 # https://github.com/giauphan/codeatlas-mcp-rust
 #
 # Usage:
-#   tmp=$(mktemp) && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp"; rm -f "$tmp"
+#   tmp=$(mktemp) && { curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/giauphan/codeatlas-mcp-rust/main/install.sh -o "$tmp" && bash "$tmp"; ret=$?; rm -f "$tmp"; (exit $ret); }
 #   or locally: ./install.sh [--setup-claude] [--setup-zed]
 # ==============================================================================
 
@@ -29,7 +29,7 @@ SETUP_ZED=false
 
 for arg in "$@"; do
   case "$arg" in
-    --setup-claude)
+    --setup-claude|--setup-claude-desktop)
       SETUP_CLAUDE=true
       ;;
     --setup-zed)
@@ -41,7 +41,7 @@ for arg in "$@"; do
       echo "Usage: ./install.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --setup-claude    Automatically configure Claude Code integration after install"
+      echo "  --setup-claude    Automatically configure Claude Desktop MCP settings after install"
       echo "  --setup-zed       Automatically configure Zed editor MCP settings after install"
       echo "  -h, --help        Show this help message"
       exit 0
@@ -129,67 +129,26 @@ if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/Cargo.toml" && -d "${SCRIPT_DIR}/cra
   fi
 fi
 
-# If not installed from local source, try cargo install from crates.io
-if [[ "$INSTALLED" = false ]] && command -v cargo >/dev/null 2>&1; then
-  log_info "Installing codeatlas from crates.io via Cargo..."
-  INSTALL_ROOT="$(dirname "$INSTALL_DIR")"
-  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force 2>/dev/null && [[ -f "$BIN_TARGET" ]]; then
-    INSTALLED=true
-  else
-    log_warn "cargo install from crates.io not available or package in publish queue."
-  fi
-fi
-
-# Fallback: Download prebuilt binary release from GitHub if available
-if [[ "$INSTALLED" = false ]]; then
-  RELEASE_REPO="giauphan/codeatlas-mcp-rust"
-  TARGET_TRIPLE=""
-
-  if [[ "$OS_TYPE" == "darwin" && "$ARCH_TYPE" == "aarch64" ]]; then
-    TARGET_TRIPLE="aarch64-apple-darwin"
-  elif [[ "$OS_TYPE" == "darwin" && "$ARCH_TYPE" == "x86_64" ]]; then
-    TARGET_TRIPLE="x86_64-apple-darwin"
-  elif [[ "$OS_TYPE" == "linux" && "$ARCH_TYPE" == "x86_64" ]]; then
-    TARGET_TRIPLE="x86_64-unknown-linux-gnu"
-  elif [[ "$OS_TYPE" == "linux" && "$ARCH_TYPE" == "aarch64" ]]; then
-    TARGET_TRIPLE="aarch64-unknown-linux-gnu"
-  fi
-
-  if [[ -n "$TARGET_TRIPLE" ]]; then
-    DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/latest/download/codeatlas-${TARGET_TRIPLE}.tar.gz"
-    log_info "Attempting to download prebuilt binary: ${DOWNLOAD_URL}"
-
-    TEMP_DIR="$(mktemp -d)"
-    trap 'rm -rf "$TEMP_DIR"' EXIT
-
-    HTTP_STATUS=""
-    if command -v curl >/dev/null 2>&1; then
-      HTTP_STATUS="$(curl --proto '=https' --proto-redir '=https' -sSL -w "%{http_code}" -o "${TEMP_DIR}/codeatlas.tar.gz" "$DOWNLOAD_URL" || true)"
-    fi
-
-    if [[ "$HTTP_STATUS" == "200" && -s "${TEMP_DIR}/codeatlas.tar.gz" ]]; then
-      tar -xzf "${TEMP_DIR}/codeatlas.tar.gz" -C "$TEMP_DIR"
-      if [[ -f "${TEMP_DIR}/codeatlas" ]]; then
-        cp -f "${TEMP_DIR}/codeatlas" "$BIN_TARGET"
-        chmod 755 "$BIN_TARGET"
-        INSTALLED=true
-      fi
-    fi
-  fi
-fi
-
-# If still not installed, prompt user to install Rust toolchain
+# If not installed from local source, require Cargo and install from crates.io
 if [[ "$INSTALLED" = false ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
-    log_warn "Rust/Cargo was not detected on this system."
+    log_error "Rust and Cargo are required to install CodeAtlas but were not found in PATH."
     echo ""
     echo "To install Rust and Cargo, run:"
     echo "  ${BOLD}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${RESET}"
     echo ""
     echo "After installing Rust, rerun this installer to build CodeAtlas."
+    exit 1
   fi
-  log_error "Installation could not be completed automatically."
-  exit 1
+
+  log_info "Installing codeatlas from crates.io via Cargo..."
+  INSTALL_ROOT="$(dirname "$INSTALL_DIR")"
+  if cargo install codeatlas --locked --root "$INSTALL_ROOT" --force 2>/dev/null && [[ -f "$BIN_TARGET" ]]; then
+    INSTALLED=true
+  else
+    log_error "Failed to install codeatlas from crates.io via Cargo."
+    exit 1
+  fi
 fi
 
 # 4. PATH verification
@@ -221,8 +180,8 @@ echo ""
 # 6. Optional Client Integrations
 if [[ "$SETUP_CLAUDE" = true ]]; then
   echo ""
-  log_info "Configuring Claude Code integration..."
-  "$BIN_TARGET" setup-claude || { log_error "Claude Code integration setup failed."; exit 1; }
+  log_info "Configuring Claude Desktop MCP integration..."
+  "$BIN_TARGET" setup-claude || { log_error "Claude Desktop MCP integration setup failed."; exit 1; }
 fi
 
 if [[ "$SETUP_ZED" = true ]]; then
