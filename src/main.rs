@@ -81,6 +81,9 @@ async fn main() -> anyhow::Result<()> {
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 println!("✓ Dream memory saved successfully.");
             }
+            Commands::Hook { .. } => {
+                println!("{{}}");
+            }
         }
         return Ok(());
     }

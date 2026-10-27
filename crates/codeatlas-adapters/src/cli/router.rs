@@ -52,11 +52,27 @@ pub enum Commands {
         #[arg(short, long, default_value = "knowledge")]
         category: String,
     },
+    /// Hook compatibility fallback for legacy IDE hooks (outputs `{}` and exits 0)
+    Hook {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_hook_command() {
+        let res = Cli::try_parse_from(["codeatlas", "hook", "task-router"]).unwrap();
+        match res.command {
+            Some(Commands::Hook { args }) => {
+                assert_eq!(args, vec!["task-router"]);
+            }
+            _ => panic!("Expected Commands::Hook"),
+        }
+    }
 
     #[test]
     fn test_version_flags() {
