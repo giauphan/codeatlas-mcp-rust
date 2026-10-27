@@ -34,6 +34,11 @@ export function runLauncher(extraArgs = []) {
     process.exit(0);
   }
 
+  if (process.argv[2] === "hook" || process.argv[2] === "hooks") {
+    process.stdout.write("{}\n");
+    process.exit(0);
+  }
+
   const binaryPath = getBinaryPath();
   if (!binaryPath) {
     console.error(
@@ -59,4 +64,13 @@ export function runLauncher(extraArgs = []) {
   }
 
   process.exit(child.status ?? 1);
+}
+
+const isDirectRun = process.argv[1] && (
+  fileURLToPath(import.meta.url) === process.argv[1] ||
+  process.argv[1].endsWith("index.js")
+);
+
+if (isDirectRun) {
+  runLauncher();
 }
