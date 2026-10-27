@@ -9,7 +9,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 use clap::Parser;
 use codeatlas_adapters::cli::{
-    run_doctor, run_setup_claude, run_setup_zed, run_task_router, Cli, Commands,
+    run_doctor, run_setup_claude, run_setup_zed, run_task_router, run_update, Cli, Commands,
 };
 use codeatlas_adapters::mcp::protocol::ToolRegistry;
 use codeatlas_adapters::mcp::stdio_transport::StdioTransport;
@@ -83,6 +83,9 @@ async fn main() -> anyhow::Result<()> {
             }
             Commands::Hook { .. } => {
                 println!("{{}}");
+            }
+            Commands::Update { check, force } => {
+                run_update(check, force).await?;
             }
         }
         return Ok(());

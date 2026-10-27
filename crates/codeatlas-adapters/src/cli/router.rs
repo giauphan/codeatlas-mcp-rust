@@ -52,6 +52,15 @@ pub enum Commands {
         #[arg(short, long, default_value = "knowledge")]
         category: String,
     },
+    /// Check for updates and upgrade CodeAtlas to the latest release
+    Update {
+        /// Only check for updates without installing
+        #[arg(long)]
+        check: bool,
+        /// Force reinstallation even if already at latest version
+        #[arg(long, short)]
+        force: bool,
+    },
     /// Hook compatibility fallback for legacy IDE hooks (outputs `{}` and exits 0)
     Hook {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -62,6 +71,18 @@ pub enum Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_update_command() {
+        let res = Cli::try_parse_from(["codeatlas", "update", "--check"]).unwrap();
+        match res.command {
+            Some(Commands::Update { check, force }) => {
+                assert!(check);
+                assert!(!force);
+            }
+            _ => panic!("Expected Commands::Update"),
+        }
+    }
 
     #[test]
     fn test_hook_command() {
