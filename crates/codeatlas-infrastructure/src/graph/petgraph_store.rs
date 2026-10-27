@@ -66,19 +66,19 @@ impl GraphRepositoryPort for PetgraphStore {
             .get(project.as_str())
             .ok_or_else(|| GraphStorageError::NotFound(project.to_string()))?;
 
-        let caller_names: Vec<String> = analysis
+        let caller_names: std::collections::HashSet<&str> = analysis
             .graph
             .links
             .iter()
             .filter(|l| (l.link_type == "call" || l.link_type == "import") && l.target == symbol)
-            .map(|l| l.source.clone())
+            .map(|l| l.source.as_str())
             .collect();
 
         let callers = analysis
             .graph
             .nodes
             .iter()
-            .filter(|n| caller_names.contains(&n.label))
+            .filter(|n| caller_names.contains(n.label.as_str()))
             .cloned()
             .collect();
 
@@ -95,19 +95,19 @@ impl GraphRepositoryPort for PetgraphStore {
             .get(project.as_str())
             .ok_or_else(|| GraphStorageError::NotFound(project.to_string()))?;
 
-        let callee_names: Vec<String> = analysis
+        let callee_names: std::collections::HashSet<&str> = analysis
             .graph
             .links
             .iter()
             .filter(|l| (l.link_type == "call" || l.link_type == "import") && l.source == symbol)
-            .map(|l| l.target.clone())
+            .map(|l| l.target.as_str())
             .collect();
 
         let callees = analysis
             .graph
             .nodes
             .iter()
-            .filter(|n| callee_names.contains(&n.label))
+            .filter(|n| callee_names.contains(n.label.as_str()))
             .cloned()
             .collect();
 
