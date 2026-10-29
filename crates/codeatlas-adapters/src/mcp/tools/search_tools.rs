@@ -142,8 +142,15 @@ impl ToolHandler for CodeSearchHandler {
                     if searched_files.insert(fp.clone()) {
                         let path = std::path::Path::new(fp);
                         if let Ok(content) = std::fs::read_to_string(path) {
-                            for (line_idx, line) in content.lines().enumerate() {
-                                if line.to_lowercase().contains(&query_lower) {
+                            // PERFORMANCE OPTIMIZATION (Bolt):
+                            // Convert the entire file content to lowercase once instead of
+                            // allocating a new lowercase string for every single line.
+                            // This significantly reduces memory allocations during search.
+                            let content_lower = content.to_lowercase();
+                            for (line_idx, (line, line_lower)) in
+                                content.lines().zip(content_lower.lines()).enumerate()
+                            {
+                                if line_lower.contains(&query_lower) {
                                     matches.push(json!({
                                         "file": fp,
                                         "line": line_idx + 1,
