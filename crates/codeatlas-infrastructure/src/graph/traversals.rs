@@ -2,28 +2,28 @@ use codeatlas_domain::entities::graph::AnalysisResult;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Fast breadth-first search on adjacency list with depth and max node limits
-pub fn bfs_reachable(
-    adj_list: &HashMap<String, Vec<String>>,
-    seed: &str,
+pub fn bfs_reachable<'a>(
+    adj_list: &HashMap<&'a str, Vec<&'a str>>,
+    seed: &'a str,
     max_depth: u32,
     max_nodes: usize,
-) -> HashSet<String> {
+) -> HashSet<&'a str> {
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
 
-    visited.insert(seed.to_string());
-    queue.push_back((seed.to_string(), 0));
+    visited.insert(seed);
+    queue.push_back((seed, 0));
 
     while let Some((current, depth)) = queue.pop_front() {
         if depth >= max_depth || visited.len() >= max_nodes {
             continue;
         }
 
-        if let Some(neighbors) = adj_list.get(&current) {
-            for neighbor in neighbors {
+        if let Some(neighbors) = adj_list.get(current) {
+            for &neighbor in neighbors {
                 if !visited.contains(neighbor) {
-                    visited.insert(neighbor.clone());
-                    queue.push_back((neighbor.clone(), depth + 1));
+                    visited.insert(neighbor);
+                    queue.push_back((neighbor, depth + 1));
                     if visited.len() >= max_nodes {
                         break;
                     }
