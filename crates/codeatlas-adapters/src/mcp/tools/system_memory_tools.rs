@@ -39,7 +39,10 @@ impl ToolHandler for SyncSystemMemoryHandler {
         }
 
         let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = resolve_memory_dir(project_arg)?;
+        let dir = match resolve_memory_dir(project_arg) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
         if !dir.exists() {
             std::fs::create_dir_all(&dir)
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
@@ -79,7 +82,10 @@ struct GetSystemMemoryHandler;
 impl ToolHandler for GetSystemMemoryHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
         let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = resolve_memory_dir(project_arg)?;
+        let dir = match resolve_memory_dir(project_arg) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
         let flow_file = dir.join("system-flow.md");
 
         if flow_file.exists() {
@@ -106,7 +112,10 @@ struct MemoryBootstrapHandler;
 impl ToolHandler for MemoryBootstrapHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
         let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = resolve_memory_dir(project_arg)?;
+        let dir = match resolve_memory_dir(project_arg) {
+            Ok(d) => d,
+            Err(e) => return Err(e),
+        };
         let flow_file = dir.join("system-flow.md");
 
         if flow_file.exists() {
