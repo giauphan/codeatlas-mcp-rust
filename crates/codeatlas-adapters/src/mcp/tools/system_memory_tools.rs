@@ -11,7 +11,10 @@ fn resolve_memory_dir(project_arg: Option<&str>) -> Result<PathBuf, String> {
         return Err("Project path cannot be absolute".to_string());
     }
 
-    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err("Project path cannot contain parent directory traversals (..)".to_string());
     }
 
