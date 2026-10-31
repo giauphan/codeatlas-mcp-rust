@@ -3,9 +3,19 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-fn resolve_memory_dir(project_arg: Option<&str>) -> PathBuf {
-    let base = std::path::Path::new(project_arg.unwrap_or("."));
-    base.join(".agents").join("memory")
+fn resolve_memory_dir(project_arg: Option<&str>) -> Result<PathBuf, String> {
+    let p = project_arg.unwrap_or(".");
+    let path = std::path::Path::new(p);
+
+    if path.is_absolute() {
+        return Err("Project path cannot be absolute".to_string());
+    }
+
+    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err("Project path cannot contain parent directory traversals (..)".to_string());
+    }
+
+    Ok(path.join(".agents").join("memory"))
 }
 
 struct SyncSystemMemoryHandler;
@@ -26,7 +36,7 @@ impl ToolHandler for SyncSystemMemoryHandler {
         }
 
         let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = resolve_memory_dir(project_arg);
+        let dir = resolve_memory_dir(project_arg)?;
         if !dir.exists() {
             std::fs::create_dir_all(&dir)
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
@@ -66,7 +76,7 @@ struct GetSystemMemoryHandler;
 impl ToolHandler for GetSystemMemoryHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
         let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = resolve_memory_dir(project_arg);
+        let dir = resolve_memory_dir(project_arg)?;
         let flow_file = dir.join("system-flow.md");
 
         if flow_file.exists() {
@@ -93,7 +103,7 @@ struct MemoryBootstrapHandler;
 impl ToolHandler for MemoryBootstrapHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
         let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = resolve_memory_dir(project_arg);
+        let dir = resolve_memory_dir(project_arg)?;
         let flow_file = dir.join("system-flow.md");
 
         if flow_file.exists() {
