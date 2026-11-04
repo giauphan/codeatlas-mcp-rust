@@ -254,9 +254,10 @@ impl ToolHandler for RunScriptHandler {
             );
         };
 
-        let output = std::process::Command::new(cmd)
+        let output = tokio::process::Command::new(cmd)
             .args(&cmd_args)
             .output()
+            .await
             .map_err(|e| format!("Failed to execute script: {}", e))?;
 
         let res = json!({
@@ -276,21 +277,24 @@ impl ToolHandler for GitChangesHandler {
         let commits = args.get("commits").and_then(|c| c.as_u64()).unwrap_or(5);
         let commits_arg = format!("-{}", commits.min(20));
 
-        let status_out = std::process::Command::new("git")
+        let status_out = tokio::process::Command::new("git")
             .args(["status", "-s"])
             .output()
+            .await
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
 
-        let log_out = std::process::Command::new("git")
+        let log_out = tokio::process::Command::new("git")
             .args(["log", &commits_arg, "--oneline"])
             .output()
+            .await
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
 
-        let branch_out = std::process::Command::new("git")
+        let branch_out = tokio::process::Command::new("git")
             .args(["branch", "--show-current"])
             .output()
+            .await
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
 

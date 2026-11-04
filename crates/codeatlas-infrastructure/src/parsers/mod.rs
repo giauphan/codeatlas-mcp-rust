@@ -1,3 +1,4 @@
+pub mod ast_utils;
 pub mod parser_engine;
 pub mod php_parser;
 pub mod py_parser;

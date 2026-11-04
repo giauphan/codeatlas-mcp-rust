@@ -43,14 +43,16 @@ impl ToolHandler for SyncSystemMemoryHandler {
             Ok(d) => d,
             Err(e) => return Err(e),
         };
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)
+        if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
+            tokio::fs::create_dir_all(&dir)
+                .await
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
         }
 
         let flow_file = dir.join("system-flow.md");
-        let mut content = if flow_file.exists() {
-            std::fs::read_to_string(&flow_file)
+        let mut content = if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
+            tokio::fs::read_to_string(&flow_file)
+                .await
                 .map_err(|e| format!("Failed to read memory file {:?}: {}", flow_file, e))?
         } else {
             "# System Architecture & Memory Checkpoint\n\n".to_string()
@@ -64,9 +66,11 @@ impl ToolHandler for SyncSystemMemoryHandler {
         }
 
         let tmp_file = dir.join(format!("system-flow.tmp.{}", std::process::id()));
-        std::fs::write(&tmp_file, &content)
+        tokio::fs::write(&tmp_file, &content)
+            .await
             .map_err(|e| format!("Failed to write temporary memory file: {}", e))?;
-        std::fs::rename(&tmp_file, &flow_file)
+        tokio::fs::rename(&tmp_file, &flow_file)
+            .await
             .map_err(|e| format!("Failed to finalize memory file: {}", e))?;
 
         let res = json!({
@@ -77,33 +81,39 @@ impl ToolHandler for SyncSystemMemoryHandler {
     }
 }
 
+async fn read_system_flow_file(args: &Value) -> Result<(PathBuf, Option<String>), String> {
+    let project_arg = args.get("project").and_then(|p| p.as_str());
+    let dir = resolve_memory_dir(project_arg)?;
+    let flow_file = dir.join("system-flow.md");
+
+    if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
+        let content = tokio::fs::read_to_string(&flow_file)
+            .await
+            .map_err(|e| format!("Failed to read memory file: {}", e))?;
+        Ok((dir, Some(content)))
+    } else {
+        Ok((dir, None))
+    }
+}
+
 struct GetSystemMemoryHandler;
 #[async_trait]
 impl ToolHandler for GetSystemMemoryHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
-        let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = match resolve_memory_dir(project_arg) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
+        let (dir, content) = read_system_flow_file(&args).await?;
         let flow_file = dir.join("system-flow.md");
-
-        if flow_file.exists() {
-            let content = std::fs::read_to_string(&flow_file)
-                .map_err(|e| format!("Failed to read memory file: {}", e))?;
-            let res = json!({
+        let res = match content {
+            Some(c) => json!({
                 "status": "found",
                 "path": flow_file.to_string_lossy(),
-                "content": content,
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        } else {
-            let res = json!({
+                "content": c,
+            }),
+            None => json!({
                 "status": "not_found",
                 "message": "No system memory found. Run 'sync_system_memory' to generate it.",
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        }
+            }),
+        };
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
     }
 }
 
@@ -111,32 +121,22 @@ struct MemoryBootstrapHandler;
 #[async_trait]
 impl ToolHandler for MemoryBootstrapHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
-        let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = match resolve_memory_dir(project_arg) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-        let flow_file = dir.join("system-flow.md");
-
-        if flow_file.exists() {
-            let content = std::fs::read_to_string(&flow_file)
-                .map_err(|e| format!("Failed to read checkpoint: {}", e))?;
-            let res = json!({
+        let (dir, content) = read_system_flow_file(&args).await?;
+        let res = match content {
+            Some(c) => json!({
                 "status": "ready",
                 "memoryAvailable": true,
                 "memoryDir": dir.to_string_lossy(),
-                "checkpoint": content,
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        } else {
-            let res = json!({
+                "checkpoint": c,
+            }),
+            None => json!({
                 "status": "not_found",
                 "memoryAvailable": false,
                 "memoryDir": dir.to_string_lossy(),
                 "message": "No checkpoint found at system-flow.md",
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        }
+            }),
+        };
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
     }
 }
 

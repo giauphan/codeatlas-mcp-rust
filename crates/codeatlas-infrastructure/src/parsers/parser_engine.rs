@@ -27,12 +27,18 @@ impl Default for TreeSitterParserEngine {
 #[async_trait]
 impl AstParserPort for TreeSitterParserEngine {
     fn supports_language(&self, path: &Path) -> bool {
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = path
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or("");
         matches!(ext, "ts" | "tsx" | "js" | "jsx" | "py" | "php")
     }
 
     async fn parse_file(&self, path: &Path, content: &str) -> Result<ParsedFile, ParserError> {
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = path
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or("");
         let (nodes, links) = match ext {
             "tsx" | "jsx" => {
                 let mut p = TypeScriptParser::new_tsx().map_err(ParserError::TreeSitter)?;

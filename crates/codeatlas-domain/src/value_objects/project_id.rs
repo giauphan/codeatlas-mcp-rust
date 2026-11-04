@@ -13,7 +13,7 @@ impl ProjectId {
     pub fn from_path(path: &Path) -> Self {
         let name = path
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(std::ffi::OsStr::to_str)
             .unwrap_or("unnamed_project");
         Self(name.to_string())
     }

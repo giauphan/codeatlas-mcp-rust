@@ -111,6 +111,28 @@ pub fn register_search_tools(
     );
 }
 
+fn search_lines_in_file(
+    file_path: &str,
+    content: &str,
+    query_lower: &str,
+    matches: &mut Vec<Value>,
+    limit: usize,
+) {
+    let content_lower = content.to_lowercase();
+    for (line_idx, (line, line_lower)) in content.lines().zip(content_lower.lines()).enumerate() {
+        if line_lower.contains(query_lower) {
+            matches.push(json!({
+                "file": file_path,
+                "line": line_idx + 1,
+                "content": line.trim(),
+            }));
+            if matches.len() >= limit {
+                break;
+            }
+        }
+    }
+}
+
 struct CodeSearchHandler {
     query_uc: Arc<QueryGraphUseCase>,
 }
@@ -135,37 +157,19 @@ impl ToolHandler for CodeSearchHandler {
         let mut matches = Vec::new();
         let query_lower = query.to_lowercase();
 
-        let mut searched_files = std::collections::HashSet::new();
         if let Some(res) = analysis {
+            let mut searched_files = std::collections::HashSet::new();
             for node in &res.graph.nodes {
-                if let Some(fp) = &node.file_path {
-                    if searched_files.insert(fp.clone()) {
-                        let path = std::path::Path::new(fp);
-                        if let Ok(content) = std::fs::read_to_string(path) {
-                            // PERFORMANCE OPTIMIZATION (Bolt):
-                            // Convert the entire file content to lowercase once instead of
-                            // allocating a new lowercase string for every single line.
-                            // This significantly reduces memory allocations during search.
-                            let content_lower = content.to_lowercase();
-                            for (line_idx, (line, line_lower)) in
-                                content.lines().zip(content_lower.lines()).enumerate()
-                            {
-                                if line_lower.contains(&query_lower) {
-                                    matches.push(json!({
-                                        "file": fp,
-                                        "line": line_idx + 1,
-                                        "content": line.trim(),
-                                    }));
-                                    if matches.len() >= 50 {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if matches.len() >= 50 {
-                        break;
-                    }
+                let Some(fp) = &node.file_path else { continue };
+                if !searched_files.insert(fp.clone()) {
+                    continue;
+                }
+                let path = std::path::Path::new(fp);
+                if let Ok(content) = tokio::fs::read_to_string(path).await {
+                    search_lines_in_file(fp, &content, &query_lower, &mut matches, 50);
+                }
+                if matches.len() >= 50 {
+                    break;
                 }
             }
         }
