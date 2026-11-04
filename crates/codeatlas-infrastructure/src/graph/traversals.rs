@@ -1,29 +1,31 @@
 use codeatlas_domain::entities::graph::AnalysisResult;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Fast breadth-first search on adjacency list with depth and max node limits
-pub fn bfs_reachable(
-    adj_list: &HashMap<String, Vec<String>>,
-    seed: &str,
+/// Fast breadth-first search on adjacency list with depth and max node limits.
+/// ⚡ Bolt Optimization: Uses `&str` instead of `String` to avoid O(N) heap allocations when building
+/// the adjacency list and queue. Reduces memory footprint and speeds up dependency resolution.
+pub fn bfs_reachable<'a>(
+    adj_list: &HashMap<&'a str, Vec<&'a str>>,
+    seed: &'a str,
     max_depth: u32,
     max_nodes: usize,
-) -> HashSet<String> {
+) -> HashSet<&'a str> {
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
 
-    visited.insert(seed.to_string());
-    queue.push_back((seed.to_string(), 0));
+    visited.insert(seed);
+    queue.push_back((seed, 0));
 
     while let Some((current, depth)) = queue.pop_front() {
         if depth >= max_depth || visited.len() >= max_nodes {
             continue;
         }
 
-        if let Some(neighbors) = adj_list.get(&current) {
-            for neighbor in neighbors {
+        if let Some(neighbors) = adj_list.get(current) {
+            for &neighbor in neighbors {
                 if !visited.contains(neighbor) {
-                    visited.insert(neighbor.clone());
-                    queue.push_back((neighbor.clone(), depth + 1));
+                    visited.insert(neighbor);
+                    queue.push_back((neighbor, depth + 1));
                     if visited.len() >= max_nodes {
                         break;
                     }
@@ -35,37 +37,39 @@ pub fn bfs_reachable(
     visited
 }
 
-/// Detect cycles using Tarjan's Strongly Connected Components
+/// Detect cycles using Tarjan's Strongly Connected Components.
+/// ⚡ Bolt Optimization: Uses borrowed `&str` for adjacency maps and internal structures
+/// (`TarjanContext`, stacks) instead of cloning strings. Eliminates unnecessary allocations during cycle detection.
 pub fn detect_cycles_in_graph(analysis: &AnalysisResult) -> Vec<Vec<String>> {
-    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for link in &analysis.graph.links {
         if link.link_type == "import" || link.link_type == "call" {
-            adj.entry(link.source.clone())
+            adj.entry(link.source.as_str())
                 .or_default()
-                .push(link.target.clone());
+                .push(link.target.as_str());
         }
     }
 
     struct TarjanContext<'a> {
         index: usize,
-        stack: Vec<String>,
-        indices: HashMap<String, usize>,
-        lowlinks: HashMap<String, usize>,
-        on_stack: HashSet<String>,
-        adj: &'a HashMap<String, Vec<String>>,
+        stack: Vec<&'a str>,
+        indices: HashMap<&'a str, usize>,
+        lowlinks: HashMap<&'a str, usize>,
+        on_stack: HashSet<&'a str>,
+        adj: &'a HashMap<&'a str, Vec<&'a str>>,
         sccs: Vec<Vec<String>>,
     }
 
     impl<'a> TarjanContext<'a> {
-        fn strongconnect(&mut self, node: &str) {
-            self.indices.insert(node.to_string(), self.index);
-            self.lowlinks.insert(node.to_string(), self.index);
+        fn strongconnect(&mut self, node: &'a str) {
+            self.indices.insert(node, self.index);
+            self.lowlinks.insert(node, self.index);
             self.index += 1;
-            self.stack.push(node.to_string());
-            self.on_stack.insert(node.to_string());
+            self.stack.push(node);
+            self.on_stack.insert(node);
 
             if let Some(neighbors) = self.adj.get(node) {
-                for neighbor in neighbors {
+                for &neighbor in neighbors {
                     if !self.indices.contains_key(neighbor) {
                         self.strongconnect(neighbor);
                         let n_low = *self.lowlinks.get(neighbor).unwrap();
@@ -82,8 +86,8 @@ pub fn detect_cycles_in_graph(analysis: &AnalysisResult) -> Vec<Vec<String>> {
             if self.lowlinks.get(node) == self.indices.get(node) {
                 let mut scc = Vec::new();
                 while let Some(w) = self.stack.pop() {
-                    self.on_stack.remove(&w);
-                    scc.push(w.clone());
+                    self.on_stack.remove(w);
+                    scc.push(w.to_string());
                     if w == node {
                         break;
                     }
@@ -106,8 +110,8 @@ pub fn detect_cycles_in_graph(analysis: &AnalysisResult) -> Vec<Vec<String>> {
     };
 
     for node in &analysis.graph.nodes {
-        if !ctx.indices.contains_key(&node.label) {
-            ctx.strongconnect(&node.label);
+        if !ctx.indices.contains_key(node.label.as_str()) {
+            ctx.strongconnect(node.label.as_str());
         }
     }
 
