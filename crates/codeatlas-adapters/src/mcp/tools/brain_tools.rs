@@ -281,7 +281,15 @@ impl ToolHandler for SetupSecondBrainHandler {
             .unwrap_or_else(|_| ".".to_string());
         let dir = std::path::PathBuf::from(home).join(".codeatlas");
         if !dir.exists() {
-            std::fs::create_dir_all(&dir)
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            builder
+                .create(&dir)
                 .map_err(|e| format!("Failed to create config directory {:?}: {}", dir, e))?;
         }
         let config_file = dir.join("config.json");
@@ -296,7 +304,21 @@ impl ToolHandler for SetupSecondBrainHandler {
 
         let serialized = serde_json::to_string_pretty(&config_data)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
-        std::fs::write(&config_file, serialized)
+
+        let mut open_opts = std::fs::OpenOptions::new();
+        open_opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open_opts.mode(0o600);
+        }
+
+        let mut file = open_opts
+            .open(&config_file)
+            .map_err(|e| format!("Failed to create config file {:?}: {}", config_file, e))?;
+
+        use std::io::Write;
+        file.write_all(serialized.as_bytes())
             .map_err(|e| format!("Failed to write config file {:?}: {}", config_file, e))?;
 
         let res = json!({
