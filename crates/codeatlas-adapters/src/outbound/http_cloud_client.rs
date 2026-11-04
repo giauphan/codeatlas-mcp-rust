@@ -26,12 +26,24 @@ impl HttpCloudClient {
         let base_url = base_url.and_then(|u| {
             let trimmed = u.trim_end_matches('/').to_string();
             let parsed = Url::parse(&trimmed).ok()?;
+            let host = parsed.host_str()?;
+
+            let is_allowed_domain = host == "opencode.ai"
+                || host == "codeatlas.ai"
+                || host.ends_with(".codeatlas.ai");
+
+            let is_loopback = matches!(
+                host,
+                "localhost" | "127.0.0.1" | "[::1]" | "::1"
+            );
+
+            let allow_custom = std::env::var("CODEATLAS_ALLOW_CUSTOM_URL")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+
             let is_allowed = match parsed.scheme() {
-                "https" => true,
-                "http" if allow_http => matches!(
-                    parsed.host_str(),
-                    Some("localhost") | Some("127.0.0.1") | Some("[::1]") | Some("::1")
-                ),
+                "https" => is_allowed_domain || is_loopback || allow_custom,
+                "http" if allow_http => is_loopback || allow_custom,
                 _ => false,
             };
 
@@ -39,7 +51,7 @@ impl HttpCloudClient {
                 Some(trimmed)
             } else {
                 tracing::warn!(
-                    "Insecure URL rejected for CodeAtlas Cloud: {}. Use HTTPS or enable allow_http with a loopback address.",
+                    "Insecure URL rejected for CodeAtlas Cloud: {}. Use an allowed official domain, or enable CODEATLAS_ALLOW_CUSTOM_URL=true.",
                     trimmed
                 );
                 None
