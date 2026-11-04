@@ -1,0 +1,81 @@
+--- crates/codeatlas-infrastructure/src/graph/petgraph_store.rs
++++ crates/codeatlas-infrastructure/src/graph/petgraph_store.rs
+@@ -107,26 +107,27 @@
+             .get(project.as_str())
+             .ok_or_else(|| GraphStorageError::NotFound(project.to_string()))?;
+
+-        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
++        // ⚡ Bolt: Optimize by using string references instead of cloning allocations
++        let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+         for link in &analysis.graph.links {
+-            adj.entry(link.source.clone())
++            adj.entry(link.source.as_str())
+                 .or_default()
+-                .push(link.target.clone());
++                .push(link.target.as_str());
+         }
+
+         let reachable = bfs_reachable(&adj, symbol, depth, 500);
+
+         let filtered_nodes = analysis
+             .graph
+             .nodes
+             .iter()
+-            .filter(|n| reachable.contains(&n.label))
++            .filter(|n| reachable.contains(n.label.as_str()))
+             .cloned()
+             .collect();
+
+         let filtered_links = analysis
+             .graph
+             .links
+             .iter()
+-            .filter(|l| reachable.contains(&l.source) && reachable.contains(&l.target))
++            .filter(|l| reachable.contains(l.source.as_str()) && reachable.contains(l.target.as_str()))
+             .cloned()
+             .collect();
+--- crates/codeatlas-infrastructure/src/graph/traversals.rs
++++ crates/codeatlas-infrastructure/src/graph/traversals.rs
+@@ -4,31 +4,32 @@
+
+ /// Fast breadth-first search on adjacency list with depth and max node limits
+-pub fn bfs_reachable(
+-    adj_list: &HashMap<String, Vec<String>>,
+-    seed: &str,
++pub fn bfs_reachable<'a>(
++    adj_list: &HashMap<&'a str, Vec<&'a str>>,
++    seed: &'a str,
+     max_depth: u32,
+     max_nodes: usize,
+-) -> HashSet<String> {
++) -> HashSet<&'a str> {
++    // ⚡ Bolt: Optimize by matching strings by reference to prevent runtime string allocation overhead
+     let mut visited = HashSet::new();
+     let mut queue = VecDeque::new();
+
+-    visited.insert(seed.to_string());
+-    queue.push_back((seed.to_string(), 0));
++    visited.insert(seed);
++    queue.push_back((seed, 0));
+
+     while let Some((current, depth)) = queue.pop_front() {
+         if depth >= max_depth || visited.len() >= max_nodes {
+             continue;
+         }
+
+-        if let Some(neighbors) = adj_list.get(&current) {
++        if let Some(neighbors) = adj_list.get(current) {
+             for neighbor in neighbors {
+-                if !visited.contains(neighbor) {
+-                    visited.insert(neighbor.clone());
+-                    queue.push_back((neighbor.clone(), depth + 1));
++                if !visited.contains(neighbor) {
++                    visited.insert(*neighbor);
++                    queue.push_back((*neighbor, depth + 1));
+                     if visited.len() >= max_nodes {
+                         break;
+                     }
+                 }
+             }
+         }
+     }

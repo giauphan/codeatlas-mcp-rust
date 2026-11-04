@@ -125,11 +125,12 @@ impl GraphRepositoryPort for PetgraphStore {
             .get(project.as_str())
             .ok_or_else(|| GraphStorageError::NotFound(project.to_string()))?;
 
-        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        // ⚡ Bolt: Optimize by using string references instead of cloning allocations
+        let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
         for link in &analysis.graph.links {
-            adj.entry(link.source.clone())
+            adj.entry(link.source.as_str())
                 .or_default()
-                .push(link.target.clone());
+                .push(link.target.as_str());
         }
 
         let reachable = bfs_reachable(&adj, symbol, depth, 500);
@@ -138,7 +139,7 @@ impl GraphRepositoryPort for PetgraphStore {
             .graph
             .nodes
             .iter()
-            .filter(|n| reachable.contains(&n.label))
+            .filter(|n| reachable.contains(n.label.as_str()))
             .cloned()
             .collect();
 
@@ -146,7 +147,9 @@ impl GraphRepositoryPort for PetgraphStore {
             .graph
             .links
             .iter()
-            .filter(|l| reachable.contains(&l.source) && reachable.contains(&l.target))
+            .filter(|l| {
+                reachable.contains(l.source.as_str()) && reachable.contains(l.target.as_str())
+            })
             .cloned()
             .collect();
 
