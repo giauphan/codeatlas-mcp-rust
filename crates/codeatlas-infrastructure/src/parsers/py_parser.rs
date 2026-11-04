@@ -27,6 +27,45 @@ fn unwrap_decorated<'a>(node: tree_sitter::Node<'a>) -> tree_sitter::Node<'a> {
     }
 }
 
+fn emit_import_link(source: &str, target: &str, links: &mut Vec<GraphLink>) {
+    links.push(GraphLink {
+        source: source.to_string(),
+        target: target.to_string(),
+        link_type: "import".to_string(),
+        label: None,
+    });
+}
+
+fn add_py_function_node_and_calls(
+    node: tree_sitter::Node<'_>,
+    content: &str,
+    path_str: &str,
+    label: &str,
+    nodes: &mut Vec<GraphNode>,
+    links: &mut Vec<GraphLink>,
+) {
+    nodes.push(GraphNode {
+        id: format!("{}#{}", path_str, label),
+        label: label.to_string(),
+        node_type: "function".to_string(),
+        val: Some(1.0),
+        color: None,
+        file_path: Some(path_str.to_string()),
+        line: Some(node.start_position().row as u32 + 1),
+    });
+
+    let mut calls = Vec::new();
+    extract_py_calls(node, content, &mut calls);
+    for callee in calls {
+        links.push(GraphLink {
+            source: label.to_string(),
+            target: callee,
+            link_type: "call".to_string(),
+            label: None,
+        });
+    }
+}
+
 fn handle_py_function(
     child: tree_sitter::Node<'_>,
     content: &str,
@@ -36,26 +75,7 @@ fn handle_py_function(
 ) {
     let Some(name_node) = child.child_by_field_name("name") else { return };
     let name = &content[name_node.start_byte()..name_node.end_byte()];
-    nodes.push(GraphNode {
-        id: format!("{}#{}", path_str, name),
-        label: name.to_string(),
-        node_type: "function".to_string(),
-        val: Some(1.0),
-        color: None,
-        file_path: Some(path_str.to_string()),
-        line: Some(child.start_position().row as u32 + 1),
-    });
-
-    let mut calls = Vec::new();
-    extract_py_calls(child, content, &mut calls);
-    for callee in calls {
-        links.push(GraphLink {
-            source: name.to_string(),
-            target: callee,
-            link_type: "call".to_string(),
-            label: None,
-        });
-    }
+    add_py_function_node_and_calls(child, content, path_str, name, nodes, links);
 }
 
 fn handle_py_class(
@@ -87,26 +107,7 @@ fn handle_py_class(
         let Some(m_name) = member.child_by_field_name("name") else { continue };
         let method_name = &content[m_name.start_byte()..m_name.end_byte()];
         let method_label = format!("{}::{}", class_name, method_name);
-        nodes.push(GraphNode {
-            id: format!("{}#{}", path_str, method_label),
-            label: method_label.clone(),
-            node_type: "function".to_string(),
-            val: Some(1.0),
-            color: None,
-            file_path: Some(path_str.to_string()),
-            line: Some(member.start_position().row as u32 + 1),
-        });
-
-        let mut calls = Vec::new();
-        extract_py_calls(member, content, &mut calls);
-        for callee in calls {
-            links.push(GraphLink {
-                source: method_label.clone(),
-                target: callee,
-                link_type: "call".to_string(),
-                label: None,
-            });
-        }
+        add_py_function_node_and_calls(member, content, path_str, &method_label, nodes, links);
     }
 }
 
@@ -118,12 +119,7 @@ fn handle_py_import(
 ) {
     if let Some(mod_node) = child.child_by_field_name("module_name") {
         let mod_name = &content[mod_node.start_byte()..mod_node.end_byte()];
-        links.push(GraphLink {
-            source: path_str.to_string(),
-            target: mod_name.to_string(),
-            link_type: "import".to_string(),
-            label: None,
-        });
+        emit_import_link(path_str, mod_name, links);
         return;
     }
 
@@ -136,12 +132,7 @@ fn handle_py_import(
         };
         if let Some(n) = name_node {
             let mod_name = &content[n.start_byte()..n.end_byte()];
-            links.push(GraphLink {
-                source: path_str.to_string(),
-                target: mod_name.to_string(),
-                link_type: "import".to_string(),
-                label: None,
-            });
+            emit_import_link(path_str, mod_name, links);
         }
     }
 }

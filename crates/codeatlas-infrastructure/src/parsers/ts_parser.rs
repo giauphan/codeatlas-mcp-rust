@@ -45,6 +45,37 @@ fn resolve_import_target(clean_source: &str, file_path: &Path) -> String {
     resolved.to_string_lossy().to_string()
 }
 
+fn add_ts_function_node_and_calls(
+    node: tree_sitter::Node<'_>,
+    content: &str,
+    path_str: &str,
+    label: &str,
+    line: u32,
+    nodes: &mut Vec<GraphNode>,
+    links: &mut Vec<GraphLink>,
+) {
+    nodes.push(GraphNode {
+        id: format!("{}#{}", path_str, label),
+        label: label.to_string(),
+        node_type: "function".to_string(),
+        val: Some(1.0),
+        color: None,
+        file_path: Some(path_str.to_string()),
+        line: Some(line),
+    });
+
+    let mut calls = Vec::new();
+    extract_ts_calls(node, content, &mut calls);
+    for callee in calls {
+        links.push(GraphLink {
+            source: label.to_string(),
+            target: callee,
+            link_type: "call".to_string(),
+            label: None,
+        });
+    }
+}
+
 fn handle_ts_function(
     child: tree_sitter::Node<'_>,
     content: &str,
@@ -54,26 +85,8 @@ fn handle_ts_function(
 ) {
     let Some(name_node) = child.child_by_field_name("name") else { return };
     let name = &content[name_node.start_byte()..name_node.end_byte()];
-    nodes.push(GraphNode {
-        id: format!("{}#{}", path_str, name),
-        label: name.to_string(),
-        node_type: "function".to_string(),
-        val: Some(1.0),
-        color: None,
-        file_path: Some(path_str.to_string()),
-        line: Some(child.start_position().row as u32 + 1),
-    });
-
-    let mut calls = Vec::new();
-    extract_ts_calls(child, content, &mut calls);
-    for callee in calls {
-        links.push(GraphLink {
-            source: name.to_string(),
-            target: callee,
-            link_type: "call".to_string(),
-            label: None,
-        });
-    }
+    let line = child.start_position().row as u32 + 1;
+    add_ts_function_node_and_calls(child, content, path_str, name, line, nodes, links);
 }
 
 fn handle_ts_class(
@@ -104,26 +117,8 @@ fn handle_ts_class(
         let Some(m_name) = member.child_by_field_name("name") else { continue };
         let method_name = &content[m_name.start_byte()..m_name.end_byte()];
         let method_label = format!("{}::{}", class_name, method_name);
-        nodes.push(GraphNode {
-            id: format!("{}#{}", path_str, method_label),
-            label: method_label.clone(),
-            node_type: "function".to_string(),
-            val: Some(1.0),
-            color: None,
-            file_path: Some(path_str.to_string()),
-            line: Some(member.start_position().row as u32 + 1),
-        });
-
-        let mut calls = Vec::new();
-        extract_ts_calls(member, content, &mut calls);
-        for callee in calls {
-            links.push(GraphLink {
-                source: method_label.clone(),
-                target: callee,
-                link_type: "call".to_string(),
-                label: None,
-            });
-        }
+        let line = member.start_position().row as u32 + 1;
+        add_ts_function_node_and_calls(member, content, path_str, &method_label, line, nodes, links);
     }
 }
 
@@ -142,33 +137,14 @@ fn handle_ts_lexical_decl(
         let Some(name_node) = decl.child_by_field_name("name") else { continue };
         let name = &content[name_node.start_byte()..name_node.end_byte()];
         let value_node = decl.child_by_field_name("value");
+        let line = decl.start_position().row as u32 + 1;
         let is_func = value_node.as_ref().is_some_and(|v| {
             v.kind() == "arrow_function" || v.kind() == "function_expression"
         });
 
         if is_func {
-            nodes.push(GraphNode {
-                id: format!("{}#{}", path_str, name),
-                label: name.to_string(),
-                node_type: "function".to_string(),
-                val: Some(1.0),
-                color: None,
-                file_path: Some(path_str.to_string()),
-                line: Some(decl.start_position().row as u32 + 1),
-            });
-
-            if let Some(val) = value_node {
-                let mut calls = Vec::new();
-                extract_ts_calls(val, content, &mut calls);
-                for callee in calls {
-                    links.push(GraphLink {
-                        source: name.to_string(),
-                        target: callee,
-                        link_type: "call".to_string(),
-                        label: None,
-                    });
-                }
-            }
+            let call_node = value_node.unwrap_or(decl);
+            add_ts_function_node_and_calls(call_node, content, path_str, name, line, nodes, links);
         } else {
             nodes.push(GraphNode {
                 id: format!("{}#{}", path_str, name),
@@ -177,7 +153,7 @@ fn handle_ts_lexical_decl(
                 val: Some(0.5),
                 color: None,
                 file_path: Some(path_str.to_string()),
-                line: Some(decl.start_position().row as u32 + 1),
+                line: Some(line),
             });
         }
     }

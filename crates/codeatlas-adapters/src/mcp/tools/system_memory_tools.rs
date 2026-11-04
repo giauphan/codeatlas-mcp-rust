@@ -81,34 +81,39 @@ impl ToolHandler for SyncSystemMemoryHandler {
     }
 }
 
+async fn read_system_flow_file(args: &Value) -> Result<(PathBuf, Option<String>), String> {
+    let project_arg = args.get("project").and_then(|p| p.as_str());
+    let dir = resolve_memory_dir(project_arg)?;
+    let flow_file = dir.join("system-flow.md");
+
+    if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
+        let content = tokio::fs::read_to_string(&flow_file)
+            .await
+            .map_err(|e| format!("Failed to read memory file: {}", e))?;
+        Ok((dir, Some(content)))
+    } else {
+        Ok((dir, None))
+    }
+}
+
 struct GetSystemMemoryHandler;
 #[async_trait]
 impl ToolHandler for GetSystemMemoryHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
-        let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = match resolve_memory_dir(project_arg) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
+        let (dir, content) = read_system_flow_file(&args).await?;
         let flow_file = dir.join("system-flow.md");
-
-        if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
-            let content = tokio::fs::read_to_string(&flow_file)
-                .await
-                .map_err(|e| format!("Failed to read memory file: {}", e))?;
-            let res = json!({
+        let res = match content {
+            Some(c) => json!({
                 "status": "found",
                 "path": flow_file.to_string_lossy(),
-                "content": content,
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        } else {
-            let res = json!({
+                "content": c,
+            }),
+            None => json!({
                 "status": "not_found",
                 "message": "No system memory found. Run 'sync_system_memory' to generate it.",
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        }
+            }),
+        };
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
     }
 }
 
@@ -116,33 +121,22 @@ struct MemoryBootstrapHandler;
 #[async_trait]
 impl ToolHandler for MemoryBootstrapHandler {
     async fn call(&self, args: Value) -> Result<String, String> {
-        let project_arg = args.get("project").and_then(|p| p.as_str());
-        let dir = match resolve_memory_dir(project_arg) {
-            Ok(d) => d,
-            Err(e) => return Err(e),
-        };
-        let flow_file = dir.join("system-flow.md");
-
-        if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
-            let content = tokio::fs::read_to_string(&flow_file)
-                .await
-                .map_err(|e| format!("Failed to read checkpoint: {}", e))?;
-            let res = json!({
+        let (dir, content) = read_system_flow_file(&args).await?;
+        let res = match content {
+            Some(c) => json!({
                 "status": "ready",
                 "memoryAvailable": true,
                 "memoryDir": dir.to_string_lossy(),
-                "checkpoint": content,
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        } else {
-            let res = json!({
+                "checkpoint": c,
+            }),
+            None => json!({
                 "status": "not_found",
                 "memoryAvailable": false,
                 "memoryDir": dir.to_string_lossy(),
                 "message": "No checkpoint found at system-flow.md",
-            });
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
-        }
+            }),
+        };
+        serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
     }
 }
 
