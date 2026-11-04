@@ -43,14 +43,16 @@ impl ToolHandler for SyncSystemMemoryHandler {
             Ok(d) => d,
             Err(e) => return Err(e),
         };
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)
+        if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
+            tokio::fs::create_dir_all(&dir)
+                .await
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
         }
 
         let flow_file = dir.join("system-flow.md");
-        let mut content = if flow_file.exists() {
-            std::fs::read_to_string(&flow_file)
+        let mut content = if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
+            tokio::fs::read_to_string(&flow_file)
+                .await
                 .map_err(|e| format!("Failed to read memory file {:?}: {}", flow_file, e))?
         } else {
             "# System Architecture & Memory Checkpoint\n\n".to_string()
@@ -64,9 +66,11 @@ impl ToolHandler for SyncSystemMemoryHandler {
         }
 
         let tmp_file = dir.join(format!("system-flow.tmp.{}", std::process::id()));
-        std::fs::write(&tmp_file, &content)
+        tokio::fs::write(&tmp_file, &content)
+            .await
             .map_err(|e| format!("Failed to write temporary memory file: {}", e))?;
-        std::fs::rename(&tmp_file, &flow_file)
+        tokio::fs::rename(&tmp_file, &flow_file)
+            .await
             .map_err(|e| format!("Failed to finalize memory file: {}", e))?;
 
         let res = json!({
@@ -88,8 +92,9 @@ impl ToolHandler for GetSystemMemoryHandler {
         };
         let flow_file = dir.join("system-flow.md");
 
-        if flow_file.exists() {
-            let content = std::fs::read_to_string(&flow_file)
+        if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
+            let content = tokio::fs::read_to_string(&flow_file)
+                .await
                 .map_err(|e| format!("Failed to read memory file: {}", e))?;
             let res = json!({
                 "status": "found",
@@ -118,8 +123,9 @@ impl ToolHandler for MemoryBootstrapHandler {
         };
         let flow_file = dir.join("system-flow.md");
 
-        if flow_file.exists() {
-            let content = std::fs::read_to_string(&flow_file)
+        if tokio::fs::try_exists(&flow_file).await.unwrap_or(false) {
+            let content = tokio::fs::read_to_string(&flow_file)
+                .await
                 .map_err(|e| format!("Failed to read checkpoint: {}", e))?;
             let res = json!({
                 "status": "ready",

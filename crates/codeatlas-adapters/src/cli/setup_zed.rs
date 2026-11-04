@@ -25,7 +25,7 @@ fn get_zed_config_path() -> anyhow::Result<PathBuf> {
     Ok(config_path)
 }
 
-fn strip_jsonc_and_trailing_commas(input: &str) -> String {
+fn strip_comments(input: &str) -> String {
     let mut without_comments = String::with_capacity(input.len());
     let mut in_string = false;
     let mut in_line_comment = false;
@@ -74,9 +74,19 @@ fn strip_jsonc_and_trailing_commas(input: &str) -> String {
             without_comments.push(c);
         }
     }
+    without_comments
+}
 
-    // Pass 2: remove trailing commas outside strings
-    let chars: Vec<char> = without_comments.chars().collect();
+fn is_trailing_comma(chars: &[char], start: usize) -> bool {
+    let mut j = start;
+    while j < chars.len() && chars[j].is_whitespace() {
+        j += 1;
+    }
+    j < chars.len() && (chars[j] == '}' || chars[j] == ']')
+}
+
+fn remove_trailing_commas(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
     let mut result = String::with_capacity(chars.len());
     let mut i = 0;
     let mut in_str = false;
@@ -102,15 +112,9 @@ fn strip_jsonc_and_trailing_commas(input: &str) -> String {
             continue;
         }
 
-        if c == ',' {
-            let mut j = i + 1;
-            while j < chars.len() && chars[j].is_whitespace() {
-                j += 1;
-            }
-            if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
-                i += 1;
-                continue;
-            }
+        if c == ',' && is_trailing_comma(&chars, i + 1) {
+            i += 1;
+            continue;
         }
 
         result.push(c);
@@ -118,6 +122,11 @@ fn strip_jsonc_and_trailing_commas(input: &str) -> String {
     }
 
     result
+}
+
+fn strip_jsonc_and_trailing_commas(input: &str) -> String {
+    let without_comments = strip_comments(input);
+    remove_trailing_commas(&without_comments)
 }
 
 pub fn run_setup_zed(force: bool) -> anyhow::Result<()> {

@@ -280,18 +280,6 @@ impl ToolHandler for SetupSecondBrainHandler {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let dir = std::path::PathBuf::from(home).join(".codeatlas");
-        if !dir.exists() {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                builder.mode(0o700);
-            }
-            builder
-                .create(&dir)
-                .map_err(|e| format!("Failed to create config directory {:?}: {}", dir, e))?;
-        }
         let config_file = dir.join("config.json");
         let api_key = args.get("apiKey").and_then(|k| k.as_str()).unwrap_or("");
         let client = args.get("client").and_then(|c| c.as_str()).unwrap_or("all");
@@ -305,21 +293,44 @@ impl ToolHandler for SetupSecondBrainHandler {
         let serialized = serde_json::to_string_pretty(&config_data)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        let mut open_opts = std::fs::OpenOptions::new();
-        open_opts.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            open_opts.mode(0o600);
-        }
+        let dir_clone = dir.clone();
+        let config_file_clone = config_file.clone();
+        let serialized_clone = serialized.clone();
 
-        let mut file = open_opts
-            .open(&config_file)
-            .map_err(|e| format!("Failed to create config file {:?}: {}", config_file, e))?;
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            if !dir_clone.exists() {
+                let mut builder = std::fs::DirBuilder::new();
+                builder.recursive(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::DirBuilderExt;
+                    builder.mode(0o700);
+                }
+                builder
+                    .create(&dir_clone)
+                    .map_err(|e| format!("Failed to create config directory {:?}: {}", dir_clone, e))?;
+            }
 
-        use std::io::Write;
-        file.write_all(serialized.as_bytes())
-            .map_err(|e| format!("Failed to write config file {:?}: {}", config_file, e))?;
+            let mut open_opts = std::fs::OpenOptions::new();
+            open_opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                open_opts.mode(0o600);
+            }
+
+            let mut file = open_opts
+                .open(&config_file_clone)
+                .map_err(|e| format!("Failed to create config file {:?}: {}", config_file_clone, e))?;
+
+            use std::io::Write;
+            file.write_all(serialized_clone.as_bytes())
+                .map_err(|e| format!("Failed to write config file {:?}: {}", config_file_clone, e))?;
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| format!("Task failed: {}", e))??;
 
         let res = json!({
             "status": "configured",
@@ -361,11 +372,13 @@ impl ToolHandler for SyncSkillsInventoryHandler {
             .join("skills");
         let mut skill_names = Vec::new();
 
-        if let Ok(entries) = std::fs::read_dir(skills_dir) {
-            for entry in entries.flatten() {
-                if entry.path().is_dir() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        skill_names.push(name.to_string());
+        if let Ok(mut entries) = tokio::fs::read_dir(&skills_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Ok(ft) = entry.file_type().await {
+                    if ft.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            skill_names.push(name.to_string());
+                        }
                     }
                 }
             }

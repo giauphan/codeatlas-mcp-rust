@@ -19,6 +19,190 @@ fn extract_ts_calls<'a>(node: tree_sitter::Node<'a>, content: &'a str, calls: &m
     }
 }
 
+fn unwrap_export<'a>(node: tree_sitter::Node<'a>) -> tree_sitter::Node<'a> {
+    if node.kind() == "export_statement" {
+        node.child_by_field_name("declaration").unwrap_or(node)
+    } else {
+        node
+    }
+}
+
+fn resolve_import_target(clean_source: &str, file_path: &Path) -> String {
+    if !clean_source.starts_with('.') {
+        return clean_source.to_string();
+    }
+    let parent = file_path.parent().unwrap_or(Path::new("."));
+    let mut resolved = parent.join(clean_source);
+    if resolved.extension().is_none() {
+        if resolved.with_extension("ts").exists() {
+            resolved = resolved.with_extension("ts");
+        } else if resolved.with_extension("tsx").exists() {
+            resolved = resolved.with_extension("tsx");
+        } else if resolved.with_extension("js").exists() {
+            resolved = resolved.with_extension("js");
+        }
+    }
+    resolved.to_string_lossy().to_string()
+}
+
+fn handle_ts_function(
+    child: tree_sitter::Node<'_>,
+    content: &str,
+    path_str: &str,
+    nodes: &mut Vec<GraphNode>,
+    links: &mut Vec<GraphLink>,
+) {
+    let Some(name_node) = child.child_by_field_name("name") else { return };
+    let name = &content[name_node.start_byte()..name_node.end_byte()];
+    nodes.push(GraphNode {
+        id: format!("{}#{}", path_str, name),
+        label: name.to_string(),
+        node_type: "function".to_string(),
+        val: Some(1.0),
+        color: None,
+        file_path: Some(path_str.to_string()),
+        line: Some(child.start_position().row as u32 + 1),
+    });
+
+    let mut calls = Vec::new();
+    extract_ts_calls(child, content, &mut calls);
+    for callee in calls {
+        links.push(GraphLink {
+            source: name.to_string(),
+            target: callee,
+            link_type: "call".to_string(),
+            label: None,
+        });
+    }
+}
+
+fn handle_ts_class(
+    child: tree_sitter::Node<'_>,
+    content: &str,
+    path_str: &str,
+    nodes: &mut Vec<GraphNode>,
+    links: &mut Vec<GraphLink>,
+) {
+    let Some(name_node) = child.child_by_field_name("name") else { return };
+    let class_name = &content[name_node.start_byte()..name_node.end_byte()];
+    nodes.push(GraphNode {
+        id: format!("{}#{}", path_str, class_name),
+        label: class_name.to_string(),
+        node_type: "class".to_string(),
+        val: Some(2.0),
+        color: None,
+        file_path: Some(path_str.to_string()),
+        line: Some(child.start_position().row as u32 + 1),
+    });
+
+    let Some(body) = child.child_by_field_name("body") else { return };
+    let mut body_cursor = body.walk();
+    for member in body.children(&mut body_cursor) {
+        if member.kind() != "method_definition" {
+            continue;
+        }
+        let Some(m_name) = member.child_by_field_name("name") else { continue };
+        let method_name = &content[m_name.start_byte()..m_name.end_byte()];
+        let method_label = format!("{}::{}", class_name, method_name);
+        nodes.push(GraphNode {
+            id: format!("{}#{}", path_str, method_label),
+            label: method_label.clone(),
+            node_type: "function".to_string(),
+            val: Some(1.0),
+            color: None,
+            file_path: Some(path_str.to_string()),
+            line: Some(member.start_position().row as u32 + 1),
+        });
+
+        let mut calls = Vec::new();
+        extract_ts_calls(member, content, &mut calls);
+        for callee in calls {
+            links.push(GraphLink {
+                source: method_label.clone(),
+                target: callee,
+                link_type: "call".to_string(),
+                label: None,
+            });
+        }
+    }
+}
+
+fn handle_ts_lexical_decl(
+    child: tree_sitter::Node<'_>,
+    content: &str,
+    path_str: &str,
+    nodes: &mut Vec<GraphNode>,
+    links: &mut Vec<GraphLink>,
+) {
+    let mut decl_cursor = child.walk();
+    for decl in child.children(&mut decl_cursor) {
+        if decl.kind() != "variable_declarator" {
+            continue;
+        }
+        let Some(name_node) = decl.child_by_field_name("name") else { continue };
+        let name = &content[name_node.start_byte()..name_node.end_byte()];
+        let value_node = decl.child_by_field_name("value");
+        let is_func = value_node.as_ref().is_some_and(|v| {
+            v.kind() == "arrow_function" || v.kind() == "function_expression"
+        });
+
+        if is_func {
+            nodes.push(GraphNode {
+                id: format!("{}#{}", path_str, name),
+                label: name.to_string(),
+                node_type: "function".to_string(),
+                val: Some(1.0),
+                color: None,
+                file_path: Some(path_str.to_string()),
+                line: Some(decl.start_position().row as u32 + 1),
+            });
+
+            if let Some(val) = value_node {
+                let mut calls = Vec::new();
+                extract_ts_calls(val, content, &mut calls);
+                for callee in calls {
+                    links.push(GraphLink {
+                        source: name.to_string(),
+                        target: callee,
+                        link_type: "call".to_string(),
+                        label: None,
+                    });
+                }
+            }
+        } else {
+            nodes.push(GraphNode {
+                id: format!("{}#{}", path_str, name),
+                label: name.to_string(),
+                node_type: "variable".to_string(),
+                val: Some(0.5),
+                color: None,
+                file_path: Some(path_str.to_string()),
+                line: Some(decl.start_position().row as u32 + 1),
+            });
+        }
+    }
+}
+
+fn handle_ts_import(
+    child: tree_sitter::Node<'_>,
+    content: &str,
+    path_str: &str,
+    file_path: &Path,
+    links: &mut Vec<GraphLink>,
+) {
+    let Some(source_node) = child.child_by_field_name("source") else { return };
+    let raw_source = &content[source_node.start_byte()..source_node.end_byte()];
+    let clean_source = raw_source.trim_matches(|c| c == '\'' || c == '"');
+    let target_path = resolve_import_target(clean_source, file_path);
+
+    links.push(GraphLink {
+        source: path_str.to_string(),
+        target: target_path,
+        link_type: "import".to_string(),
+        label: None,
+    });
+}
+
 impl TypeScriptParser {
     pub fn new() -> Result<Self, String> {
         let mut parser = Parser::new();
@@ -67,166 +251,20 @@ impl TypeScriptParser {
         let mut cursor = root_node.walk();
 
         for top in root_node.children(&mut cursor) {
-            let child = if top.kind() == "export_statement" {
-                top.child_by_field_name("declaration").unwrap_or(top)
-            } else {
-                top
-            };
+            let child = unwrap_export(top);
 
             match child.kind() {
                 "function_declaration" => {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        let name = &content[name_node.start_byte()..name_node.end_byte()];
-                        nodes.push(GraphNode {
-                            id: format!("{}#{}", path_str, name),
-                            label: name.to_string(),
-                            node_type: "function".to_string(),
-                            val: Some(1.0),
-                            color: None,
-                            file_path: Some(path_str.clone()),
-                            line: Some(child.start_position().row as u32 + 1),
-                        });
-
-                        // Extract calls within function body
-                        let mut calls = Vec::new();
-                        extract_ts_calls(child, content, &mut calls);
-                        for callee in calls {
-                            links.push(GraphLink {
-                                source: name.to_string(),
-                                target: callee,
-                                link_type: "call".to_string(),
-                                label: None,
-                            });
-                        }
-                    }
+                    handle_ts_function(child, content, &path_str, &mut nodes, &mut links);
                 }
                 "class_declaration" => {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        let class_name = &content[name_node.start_byte()..name_node.end_byte()];
-                        nodes.push(GraphNode {
-                            id: format!("{}#{}", path_str, class_name),
-                            label: class_name.to_string(),
-                            node_type: "class".to_string(),
-                            val: Some(2.0),
-                            color: None,
-                            file_path: Some(path_str.clone()),
-                            line: Some(child.start_position().row as u32 + 1),
-                        });
-
-                        // Extract methods from class_body
-                        if let Some(body) = child.child_by_field_name("body") {
-                            let mut body_cursor = body.walk();
-                            for member in body.children(&mut body_cursor) {
-                                if member.kind() == "method_definition" {
-                                    if let Some(m_name) = member.child_by_field_name("name") {
-                                        let method_name =
-                                            &content[m_name.start_byte()..m_name.end_byte()];
-                                        let method_label =
-                                            format!("{}::{}", class_name, method_name);
-                                        nodes.push(GraphNode {
-                                            id: format!("{}#{}", path_str, method_label),
-                                            label: method_label.clone(),
-                                            node_type: "function".to_string(),
-                                            val: Some(1.0),
-                                            color: None,
-                                            file_path: Some(path_str.clone()),
-                                            line: Some(member.start_position().row as u32 + 1),
-                                        });
-
-                                        let mut calls = Vec::new();
-                                        extract_ts_calls(member, content, &mut calls);
-                                        for callee in calls {
-                                            links.push(GraphLink {
-                                                source: method_label.clone(),
-                                                target: callee,
-                                                link_type: "call".to_string(),
-                                                label: None,
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    handle_ts_class(child, content, &path_str, &mut nodes, &mut links);
                 }
                 "lexical_declaration" => {
-                    let mut decl_cursor = child.walk();
-                    for decl in child.children(&mut decl_cursor) {
-                        if decl.kind() == "variable_declarator" {
-                            if let Some(name_node) = decl.child_by_field_name("name") {
-                                let name = &content[name_node.start_byte()..name_node.end_byte()];
-                                let value_node = decl.child_by_field_name("value");
-                                let is_func = value_node.as_ref().is_some_and(|v| {
-                                    v.kind() == "arrow_function"
-                                        || v.kind() == "function_expression"
-                                });
-
-                                if is_func {
-                                    nodes.push(GraphNode {
-                                        id: format!("{}#{}", path_str, name),
-                                        label: name.to_string(),
-                                        node_type: "function".to_string(),
-                                        val: Some(1.0),
-                                        color: None,
-                                        file_path: Some(path_str.clone()),
-                                        line: Some(decl.start_position().row as u32 + 1),
-                                    });
-
-                                    if let Some(val) = value_node {
-                                        let mut calls = Vec::new();
-                                        extract_ts_calls(val, content, &mut calls);
-                                        for callee in calls {
-                                            links.push(GraphLink {
-                                                source: name.to_string(),
-                                                target: callee,
-                                                link_type: "call".to_string(),
-                                                label: None,
-                                            });
-                                        }
-                                    }
-                                } else {
-                                    nodes.push(GraphNode {
-                                        id: format!("{}#{}", path_str, name),
-                                        label: name.to_string(),
-                                        node_type: "variable".to_string(),
-                                        val: Some(0.5),
-                                        color: None,
-                                        file_path: Some(path_str.clone()),
-                                        line: Some(decl.start_position().row as u32 + 1),
-                                    });
-                                }
-                            }
-                        }
-                    }
+                    handle_ts_lexical_decl(child, content, &path_str, &mut nodes, &mut links);
                 }
                 "import_statement" => {
-                    if let Some(source_node) = child.child_by_field_name("source") {
-                        let raw_source = &content[source_node.start_byte()..source_node.end_byte()];
-                        let clean_source = raw_source.trim_matches(|c| c == '\'' || c == '"');
-                        let target_path = if clean_source.starts_with('.') {
-                            let parent = file_path.parent().unwrap_or(Path::new("."));
-                            let mut resolved = parent.join(clean_source);
-                            if resolved.extension().is_none() {
-                                if resolved.with_extension("ts").exists() {
-                                    resolved = resolved.with_extension("ts");
-                                } else if resolved.with_extension("tsx").exists() {
-                                    resolved = resolved.with_extension("tsx");
-                                } else if resolved.with_extension("js").exists() {
-                                    resolved = resolved.with_extension("js");
-                                }
-                            }
-                            resolved.to_string_lossy().to_string()
-                        } else {
-                            clean_source.to_string()
-                        };
-
-                        links.push(GraphLink {
-                            source: path_str.clone(),
-                            target: target_path,
-                            link_type: "import".to_string(),
-                            label: None,
-                        });
-                    }
+                    handle_ts_import(child, content, &path_str, file_path, &mut links);
                 }
                 _ => {}
             }

@@ -1,7 +1,7 @@
 //! CLI Update Command: check for updates and upgrade CodeAtlas from crates.io
 
 use anyhow::{bail, Context, Result};
-use std::process::Command;
+use tokio::process::Command;
 
 #[derive(serde::Deserialize, Debug)]
 struct CratesResponse {
@@ -22,7 +22,7 @@ pub async fn run_update(check_only: bool, force: bool) -> Result<()> {
 
     let latest_version = match fetch_latest_from_crates_io(current_version).await {
         Ok(v) => v,
-        Err(e) => match fetch_latest_via_curl() {
+        Err(e) => match fetch_latest_via_curl().await {
             Ok(v) => v,
             Err(_) => return Err(e),
         },
@@ -65,6 +65,7 @@ pub async fn run_update(check_only: bool, force: bool) -> Result<()> {
     let status = Command::new("cargo")
         .args(["install", "codeatlas-cli", "--force"])
         .status()
+        .await
         .context("Failed to execute `cargo install codeatlas-cli --force`")?;
 
     if status.success() {
@@ -101,7 +102,7 @@ async fn fetch_latest_from_crates_io(current_version: &str) -> Result<String> {
     Ok(data.krate.max_version)
 }
 
-fn fetch_latest_via_curl() -> Result<String> {
+async fn fetch_latest_via_curl() -> Result<String> {
     let output = Command::new("curl")
         .args([
             "-s",
@@ -110,6 +111,7 @@ fn fetch_latest_via_curl() -> Result<String> {
             "https://crates.io/api/v1/crates/codeatlas-cli",
         ])
         .output()
+        .await
         .context("Failed to run curl")?;
 
     if !output.status.success() {
