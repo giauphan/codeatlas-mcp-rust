@@ -1,6 +1,5 @@
 use crate::parsers::ast_utils::{
-    child_field_text, init_parsed_graph, make_call_link, make_class_node, make_function_node,
-    make_import_link, node_text,
+    child_field_text, init_parsed_graph, make_class_node, make_import_link, node_text, GraphTarget,
 };
 use codeatlas_domain::entities::graph::{GraphLink, GraphNode};
 use std::path::Path;
@@ -8,18 +7,6 @@ use tree_sitter::Parser;
 
 pub struct PythonParser {
     parser: Parser,
-}
-
-fn extract_py_calls<'a>(node: tree_sitter::Node<'a>, content: &'a str, calls: &mut Vec<String>) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "call" {
-            if let Some(func) = child.child_by_field_name("function") {
-                calls.push(node_text(func, content).to_string());
-            }
-        }
-        extract_py_calls(child, content, calls);
-    }
 }
 
 fn unwrap_decorated<'a>(node: tree_sitter::Node<'a>) -> tree_sitter::Node<'a> {
@@ -30,49 +17,22 @@ fn unwrap_decorated<'a>(node: tree_sitter::Node<'a>) -> tree_sitter::Node<'a> {
     }
 }
 
-fn add_py_function_node_and_calls(
-    node: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    label: &str,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
-) {
-    let line = node.start_position().row as u32 + 1;
-    nodes.push(make_function_node(path_str, label, line));
-
-    let mut calls = Vec::new();
-    extract_py_calls(node, content, &mut calls);
-    for callee in calls {
-        links.push(make_call_link(label, &callee));
-    }
-}
-
-fn handle_py_function(
-    child: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
-) {
+fn handle_py_function(child: tree_sitter::Node<'_>, content: &str, target: &mut GraphTarget<'_>) {
     let Some(name) = child_field_text(child, "name", content) else {
         return;
     };
-    add_py_function_node_and_calls(child, content, path_str, name, nodes, links);
+    let line = child.start_position().row as u32 + 1;
+    target.add_function_with_calls(child, content, name, line, "call");
 }
 
-fn handle_py_class(
-    child: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
-) {
+fn handle_py_class(child: tree_sitter::Node<'_>, content: &str, target: &mut GraphTarget<'_>) {
     let Some(class_name) = child_field_text(child, "name", content) else {
         return;
     };
     let line = child.start_position().row as u32 + 1;
-    nodes.push(make_class_node(path_str, class_name, line));
+    target
+        .nodes
+        .push(make_class_node(target.path_str, class_name, line));
 
     let Some(body) = child.child_by_field_name("body") else {
         return;
@@ -87,18 +47,16 @@ fn handle_py_class(
             continue;
         };
         let method_label = format!("{class_name}::{method_name}");
-        add_py_function_node_and_calls(member, content, path_str, &method_label, nodes, links);
+        let m_line = member.start_position().row as u32 + 1;
+        target.add_function_with_calls(member, content, &method_label, m_line, "call");
     }
 }
 
-fn handle_py_import(
-    child: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    links: &mut Vec<GraphLink>,
-) {
+fn handle_py_import(child: tree_sitter::Node<'_>, content: &str, target: &mut GraphTarget<'_>) {
     if let Some(mod_name) = child_field_text(child, "module_name", content) {
-        links.push(make_import_link(path_str, mod_name));
+        target
+            .links
+            .push(make_import_link(target.path_str, mod_name));
         return;
     }
 
@@ -110,7 +68,9 @@ fn handle_py_import(
             _ => None,
         };
         if let Some(n) = name_node {
-            links.push(make_import_link(path_str, node_text(n, content)));
+            target
+                .links
+                .push(make_import_link(target.path_str, node_text(n, content)));
         }
     }
 }
@@ -136,6 +96,11 @@ impl PythonParser {
             .ok_or_else(|| "Failed to parse Python code".to_string())?;
 
         let (path_str, mut nodes, mut links) = init_parsed_graph(file_path);
+        let mut target = GraphTarget {
+            path_str: &path_str,
+            nodes: &mut nodes,
+            links: &mut links,
+        };
         let root_node = tree.root_node();
         let mut cursor = root_node.walk();
 
@@ -144,18 +109,52 @@ impl PythonParser {
 
             match child.kind() {
                 "function_definition" => {
-                    handle_py_function(child, content, &path_str, &mut nodes, &mut links);
+                    handle_py_function(child, content, &mut target);
                 }
                 "class_definition" => {
-                    handle_py_class(child, content, &path_str, &mut nodes, &mut links);
+                    handle_py_class(child, content, &mut target);
                 }
                 "import_statement" | "import_from_statement" => {
-                    handle_py_import(child, content, &path_str, &mut links);
+                    handle_py_import(child, content, &mut target);
                 }
                 _ => {}
             }
         }
 
         Ok((nodes, links))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_python_parser_functions_and_calls() {
+        let mut parser = PythonParser::new().expect("Should create Python parser");
+        let code = r#"
+def helper():
+    print("hello")
+
+class Service:
+    def execute(self):
+        helper()
+"#;
+        let (nodes, links) = parser
+            .parse(Path::new("test.py"), code)
+            .expect("Should parse");
+
+        let node_labels: Vec<&str> = nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(node_labels.contains(&"helper"));
+        assert!(node_labels.contains(&"Service"));
+        assert!(node_labels.contains(&"Service::execute"));
+
+        let has_call = links
+            .iter()
+            .any(|l| l.source == "Service::execute" && l.target == "helper");
+        assert!(
+            has_call,
+            "Expected call link from Service::execute to helper"
+        );
     }
 }

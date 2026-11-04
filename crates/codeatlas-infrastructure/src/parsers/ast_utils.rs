@@ -86,3 +86,46 @@ pub(crate) fn child_field_text<'a>(
     node.child_by_field_name(field)
         .map(|n| node_text(n, content))
 }
+
+pub(crate) fn extract_calls<'a>(
+    node: tree_sitter::Node<'a>,
+    content: &'a str,
+    call_kind: &str,
+    calls: &mut Vec<String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == call_kind {
+            if let Some(func) = child.child_by_field_name("function") {
+                calls.push(node_text(func, content).to_string());
+            }
+        }
+        extract_calls(child, content, call_kind, calls);
+    }
+}
+
+pub(crate) struct GraphTarget<'a> {
+    pub path_str: &'a str,
+    pub nodes: &'a mut Vec<GraphNode>,
+    pub links: &'a mut Vec<GraphLink>,
+}
+
+impl<'a> GraphTarget<'a> {
+    pub fn add_function_with_calls(
+        &mut self,
+        node: tree_sitter::Node<'_>,
+        content: &str,
+        label: &str,
+        line: u32,
+        call_kind: &str,
+    ) {
+        self.nodes
+            .push(make_function_node(self.path_str, label, line));
+
+        let mut calls = Vec::new();
+        extract_calls(node, content, call_kind, &mut calls);
+        for callee in calls {
+            self.links.push(make_call_link(label, &callee));
+        }
+    }
+}

@@ -76,6 +76,68 @@ impl HttpCloudClient {
         let api_key = std::env::var("CODEATLAS_API_KEY").ok();
         Self::new(base_url, api_key)
     }
+
+    fn auth_config(&self) -> Result<(&str, &str), CloudSyncError> {
+        match (&self.base_url, &self.api_key) {
+            (Some(u), Some(k)) => Ok((u.as_str(), k.as_str())),
+            _ => Err(CloudSyncError::Offline),
+        }
+    }
+
+    async fn post_json<T: serde::Serialize + ?Sized>(
+        &self,
+        endpoint_path: &str,
+        payload: &T,
+    ) -> Result<(), CloudSyncError> {
+        let (url, key) = self.auth_config()?;
+        let endpoint = format!("{url}{endpoint_path}");
+        let resp = self
+            .client
+            .post(&endpoint)
+            .header("Authorization", format!("Bearer {key}"))
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(CloudSyncError::Api {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn get_json<T: serde::de::DeserializeOwned, Q: serde::Serialize + ?Sized>(
+        &self,
+        endpoint_path: &str,
+        query: &Q,
+    ) -> Result<T, CloudSyncError> {
+        let (url, key) = self.auth_config()?;
+        let endpoint = format!("{url}{endpoint_path}");
+        let resp = self
+            .client
+            .get(&endpoint)
+            .header("Authorization", format!("Bearer {key}"))
+            .query(query)
+            .send()
+            .await
+            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
+
+        if resp.status().is_success() {
+            let body = resp
+                .json()
+                .await
+                .map_err(|e| CloudSyncError::Network(e.to_string()))?;
+            Ok(body)
+        } else {
+            Err(CloudSyncError::Api {
+                status: resp.status().as_u16(),
+                message: resp.text().await.unwrap_or_default(),
+            })
+        }
+    }
 }
 
 impl Default for HttpCloudClient {
@@ -87,16 +149,13 @@ impl Default for HttpCloudClient {
 #[async_trait]
 impl CloudSyncPort for HttpCloudClient {
     async fn check_auth(&self) -> Result<bool, CloudSyncError> {
-        let (url, key) = match (&self.base_url, &self.api_key) {
-            (Some(u), Some(k)) => (u, k),
-            _ => return Err(CloudSyncError::Offline),
-        };
+        let (url, key) = self.auth_config()?;
 
-        let endpoint = format!("{}/api/auth/verify", url);
+        let endpoint = format!("{url}/api/auth/verify");
         let resp = self
             .client
             .get(&endpoint)
-            .header("Authorization", format!("Bearer {}", key))
+            .header("Authorization", format!("Bearer {key}"))
             .send()
             .await
             .map_err(|e| CloudSyncError::Network(e.to_string()))?;
@@ -117,28 +176,7 @@ impl CloudSyncPort for HttpCloudClient {
     }
 
     async fn save_dream(&self, dream: &DreamMemory) -> Result<(), CloudSyncError> {
-        let (url, key) = match (&self.base_url, &self.api_key) {
-            (Some(u), Some(k)) => (u, k),
-            _ => return Err(CloudSyncError::Offline),
-        };
-
-        let endpoint = format!("{}/api/dreams", url);
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Authorization", format!("Bearer {}", key))
-            .json(dream)
-            .send()
-            .await
-            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-
-        if !resp.status().is_success() {
-            return Err(CloudSyncError::Api {
-                status: resp.status().as_u16(),
-                message: resp.text().await.unwrap_or_default(),
-            });
-        }
-        Ok(())
+        self.post_json("/api/dreams", dream).await
     }
 
     async fn query_dreams(
@@ -147,39 +185,12 @@ impl CloudSyncPort for HttpCloudClient {
         project: Option<&str>,
         limit: usize,
     ) -> Result<Vec<DreamMemory>, CloudSyncError> {
-        let (url, key) = match (&self.base_url, &self.api_key) {
-            (Some(u), Some(k)) => (u, k),
-            _ => return Err(CloudSyncError::Offline),
-        };
-
         let limit_str = limit.to_string();
         let mut query_params = vec![("q", query), ("limit", &limit_str)];
         if let Some(p) = project {
             query_params.push(("project", p));
         }
-
-        let endpoint = format!("{}/api/dreams/query", url);
-        let resp = self
-            .client
-            .get(&endpoint)
-            .header("Authorization", format!("Bearer {}", key))
-            .query(&query_params)
-            .send()
-            .await
-            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-
-        if resp.status().is_success() {
-            let memories: Vec<DreamMemory> = resp
-                .json()
-                .await
-                .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-            Ok(memories)
-        } else {
-            Err(CloudSyncError::Api {
-                status: resp.status().as_u16(),
-                message: resp.text().await.unwrap_or_default(),
-            })
-        }
+        self.get_json("/api/dreams/query", &query_params).await
     }
 
     async fn search_genome(
@@ -187,88 +198,91 @@ impl CloudSyncPort for HttpCloudClient {
         query: &str,
         limit: usize,
     ) -> Result<Vec<ImmuneGene>, CloudSyncError> {
-        let (url, key) = match (&self.base_url, &self.api_key) {
-            (Some(u), Some(k)) => (u, k),
-            _ => return Err(CloudSyncError::Offline),
-        };
-
         let limit_str = limit.to_string();
-        let endpoint = format!("{}/api/genome/search", url);
-        let resp = self
-            .client
-            .get(&endpoint)
-            .header("Authorization", format!("Bearer {}", key))
-            .query(&[("q", query), ("limit", &limit_str)])
-            .send()
+        self.get_json("/api/genome/search", &[("q", query), ("limit", &limit_str)])
             .await
-            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-
-        if resp.status().is_success() {
-            let genes = resp
-                .json()
-                .await
-                .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-            Ok(genes)
-        } else {
-            Err(CloudSyncError::Api {
-                status: resp.status().as_u16(),
-                message: resp.text().await.unwrap_or_default(),
-            })
-        }
     }
 
     async fn scan_immune_genes(&self, problem: &str) -> Result<Vec<ImmuneGene>, CloudSyncError> {
-        let (url, key) = match (&self.base_url, &self.api_key) {
-            (Some(u), Some(k)) => (u, k),
-            _ => return Err(CloudSyncError::Offline),
-        };
-
-        let endpoint = format!("{}/api/immune/scan", url);
-        let resp = self
-            .client
-            .get(&endpoint)
-            .header("Authorization", format!("Bearer {}", key))
-            .query(&[("problem", problem)])
-            .send()
+        self.get_json("/api/immune/scan", &[("problem", problem)])
             .await
-            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-
-        if resp.status().is_success() {
-            let genes = resp
-                .json()
-                .await
-                .map_err(|e| CloudSyncError::Network(e.to_string()))?;
-            Ok(genes)
-        } else {
-            Err(CloudSyncError::Api {
-                status: resp.status().as_u16(),
-                message: resp.text().await.unwrap_or_default(),
-            })
-        }
     }
 
     async fn save_immune_gene(&self, gene: &ImmuneGene) -> Result<(), CloudSyncError> {
-        let (url, key) = match (&self.base_url, &self.api_key) {
-            (Some(u), Some(k)) => (u, k),
-            _ => return Err(CloudSyncError::Offline),
+        self.post_json("/api/immune/genes", gene).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_offline_when_unconfigured() {
+        let client = HttpCloudClient::new(None, None);
+        assert!(matches!(
+            client.check_auth().await,
+            Err(CloudSyncError::Offline)
+        ));
+
+        let dream = DreamMemory {
+            id: "d1".into(),
+            category: "mistake".into(),
+            content: "test error".into(),
+            project: "proj".into(),
+            timestamp: "2026-11-04T00:00:00Z".into(),
+            score: None,
         };
+        assert!(matches!(
+            client.save_dream(&dream).await,
+            Err(CloudSyncError::Offline)
+        ));
+        assert!(matches!(
+            client.query_dreams("test", None, 10).await,
+            Err(CloudSyncError::Offline)
+        ));
+        assert!(matches!(
+            client.search_genome("test", 10).await,
+            Err(CloudSyncError::Offline)
+        ));
+        assert!(matches!(
+            client.scan_immune_genes("test").await,
+            Err(CloudSyncError::Offline)
+        ));
+    }
 
-        let endpoint = format!("{}/api/immune/genes", url);
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Authorization", format!("Bearer {}", key))
-            .json(gene)
-            .send()
-            .await
-            .map_err(|e| CloudSyncError::Network(e.to_string()))?;
+    #[test]
+    fn test_url_sanitization() {
+        // Insecure unallowed domain rejected
+        let client = HttpCloudClient::with_allow_http(
+            Some("http://evil.com".into()),
+            Some("k".into()),
+            false,
+        );
+        assert!(client.base_url.is_none());
 
-        if !resp.status().is_success() {
-            return Err(CloudSyncError::Api {
-                status: resp.status().as_u16(),
-                message: resp.text().await.unwrap_or_default(),
-            });
-        }
-        Ok(())
+        // Allowed cloud domain accepted
+        let client = HttpCloudClient::with_allow_http(
+            Some("https://codeatlas.ai".into()),
+            Some("k".into()),
+            false,
+        );
+        assert_eq!(client.base_url.as_deref(), Some("https://codeatlas.ai"));
+
+        // Loopback with allow_http = true accepted
+        let client = HttpCloudClient::with_allow_http(
+            Some("http://localhost:8080/".into()),
+            Some("k".into()),
+            true,
+        );
+        assert_eq!(client.base_url.as_deref(), Some("http://localhost:8080"));
+
+        // Loopback with allow_http = false rejected
+        let client = HttpCloudClient::with_allow_http(
+            Some("http://localhost:8080".into()),
+            Some("k".into()),
+            false,
+        );
+        assert!(client.base_url.is_none());
     }
 }

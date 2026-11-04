@@ -1,6 +1,6 @@
 use crate::parsers::ast_utils::{
-    child_field_text, init_parsed_graph, make_call_link, make_class_node, make_function_node,
-    make_import_link, make_variable_node, node_text,
+    child_field_text, init_parsed_graph, make_class_node, make_import_link, make_variable_node,
+    node_text, GraphTarget,
 };
 use codeatlas_domain::entities::graph::{GraphLink, GraphNode};
 use std::path::Path;
@@ -8,18 +8,6 @@ use tree_sitter::Parser;
 
 pub struct TypeScriptParser {
     parser: Parser,
-}
-
-fn extract_ts_calls<'a>(node: tree_sitter::Node<'a>, content: &'a str, calls: &mut Vec<String>) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "call_expression" {
-            if let Some(func) = child.child_by_field_name("function") {
-                calls.push(node_text(func, content).to_string());
-            }
-        }
-        extract_ts_calls(child, content, calls);
-    }
 }
 
 fn unwrap_export<'a>(node: tree_sitter::Node<'a>) -> tree_sitter::Node<'a> {
@@ -48,50 +36,22 @@ fn resolve_import_target(clean_source: &str, file_path: &Path) -> String {
     resolved.to_string_lossy().to_string()
 }
 
-fn add_ts_function_node_and_calls(
-    node: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    label: &str,
-    line: u32,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
-) {
-    nodes.push(make_function_node(path_str, label, line));
-
-    let mut calls = Vec::new();
-    extract_ts_calls(node, content, &mut calls);
-    for callee in calls {
-        links.push(make_call_link(label, &callee));
-    }
-}
-
-fn handle_ts_function(
-    child: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
-) {
+fn handle_ts_function(child: tree_sitter::Node<'_>, content: &str, target: &mut GraphTarget<'_>) {
     let Some(name) = child_field_text(child, "name", content) else {
         return;
     };
     let line = child.start_position().row as u32 + 1;
-    add_ts_function_node_and_calls(child, content, path_str, name, line, nodes, links);
+    target.add_function_with_calls(child, content, name, line, "call_expression");
 }
 
-fn handle_ts_class(
-    child: tree_sitter::Node<'_>,
-    content: &str,
-    path_str: &str,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
-) {
+fn handle_ts_class(child: tree_sitter::Node<'_>, content: &str, target: &mut GraphTarget<'_>) {
     let Some(class_name) = child_field_text(child, "name", content) else {
         return;
     };
     let class_line = child.start_position().row as u32 + 1;
-    nodes.push(make_class_node(path_str, class_name, class_line));
+    target
+        .nodes
+        .push(make_class_node(target.path_str, class_name, class_line));
 
     let Some(body) = child.child_by_field_name("body") else {
         return;
@@ -106,24 +66,14 @@ fn handle_ts_class(
         };
         let method_label = format!("{class_name}::{m_name}");
         let line = member.start_position().row as u32 + 1;
-        add_ts_function_node_and_calls(
-            member,
-            content,
-            path_str,
-            &method_label,
-            line,
-            nodes,
-            links,
-        );
+        target.add_function_with_calls(member, content, &method_label, line, "call_expression");
     }
 }
 
 fn handle_ts_lexical_decl(
     child: tree_sitter::Node<'_>,
     content: &str,
-    path_str: &str,
-    nodes: &mut Vec<GraphNode>,
-    links: &mut Vec<GraphLink>,
+    target: &mut GraphTarget<'_>,
 ) {
     let mut decl_cursor = child.walk();
     for decl in child.children(&mut decl_cursor) {
@@ -141,9 +91,11 @@ fn handle_ts_lexical_decl(
 
         if is_func {
             let call_node = value_node.unwrap_or(decl);
-            add_ts_function_node_and_calls(call_node, content, path_str, name, line, nodes, links);
+            target.add_function_with_calls(call_node, content, name, line, "call_expression");
         } else {
-            nodes.push(make_variable_node(path_str, name, line));
+            target
+                .nodes
+                .push(make_variable_node(target.path_str, name, line));
         }
     }
 }
@@ -151,16 +103,17 @@ fn handle_ts_lexical_decl(
 fn handle_ts_import(
     child: tree_sitter::Node<'_>,
     content: &str,
-    path_str: &str,
     file_path: &Path,
-    links: &mut Vec<GraphLink>,
+    target: &mut GraphTarget<'_>,
 ) {
     let Some(source_node) = child.child_by_field_name("source") else {
         return;
     };
     let clean_source = node_text(source_node, content).trim_matches(|c| c == '\'' || c == '"');
     let target_path = resolve_import_target(clean_source, file_path);
-    links.push(make_import_link(path_str, &target_path));
+    target
+        .links
+        .push(make_import_link(target.path_str, &target_path));
 }
 
 impl TypeScriptParser {
@@ -193,6 +146,11 @@ impl TypeScriptParser {
             .ok_or_else(|| "Failed to parse TypeScript code".to_string())?;
 
         let (path_str, mut nodes, mut links) = init_parsed_graph(file_path);
+        let mut target = GraphTarget {
+            path_str: &path_str,
+            nodes: &mut nodes,
+            links: &mut links,
+        };
         let root_node = tree.root_node();
         let mut cursor = root_node.walk();
 
@@ -201,21 +159,58 @@ impl TypeScriptParser {
 
             match child.kind() {
                 "function_declaration" => {
-                    handle_ts_function(child, content, &path_str, &mut nodes, &mut links);
+                    handle_ts_function(child, content, &mut target);
                 }
                 "class_declaration" => {
-                    handle_ts_class(child, content, &path_str, &mut nodes, &mut links);
+                    handle_ts_class(child, content, &mut target);
                 }
                 "lexical_declaration" => {
-                    handle_ts_lexical_decl(child, content, &path_str, &mut nodes, &mut links);
+                    handle_ts_lexical_decl(child, content, &mut target);
                 }
                 "import_statement" => {
-                    handle_ts_import(child, content, &path_str, file_path, &mut links);
+                    handle_ts_import(child, content, file_path, &mut target);
                 }
                 _ => {}
             }
         }
 
         Ok((nodes, links))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_typescript_parser_functions_and_calls() {
+        let mut parser = TypeScriptParser::new().expect("Should create TypeScript parser");
+        let code = r#"
+function greet() {
+    console.log("hello");
+}
+
+class Greeter {
+    welcome() {
+        greet();
+    }
+}
+"#;
+        let (nodes, links) = parser
+            .parse(Path::new("test.ts"), code)
+            .expect("Should parse");
+
+        let node_labels: Vec<&str> = nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(node_labels.contains(&"greet"));
+        assert!(node_labels.contains(&"Greeter"));
+        assert!(node_labels.contains(&"Greeter::welcome"));
+
+        let has_call = links
+            .iter()
+            .any(|l| l.source == "Greeter::welcome" && l.target == "greet");
+        assert!(
+            has_call,
+            "Expected call link from Greeter::welcome to greet"
+        );
     }
 }
