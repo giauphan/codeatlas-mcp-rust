@@ -1,3 +1,7 @@
+use crate::parsers::ast_utils::{
+    child_field_text, init_parsed_graph, make_call_link, make_class_node, make_function_node,
+    make_import_link, make_variable_node, node_text,
+};
 use codeatlas_domain::entities::graph::{GraphLink, GraphNode};
 use std::path::Path;
 use tree_sitter::Parser;
@@ -11,8 +15,7 @@ fn extract_ts_calls<'a>(node: tree_sitter::Node<'a>, content: &'a str, calls: &m
     for child in node.children(&mut cursor) {
         if child.kind() == "call_expression" {
             if let Some(func) = child.child_by_field_name("function") {
-                let callee = &content[func.start_byte()..func.end_byte()];
-                calls.push(callee.to_string());
+                calls.push(node_text(func, content).to_string());
             }
         }
         extract_ts_calls(child, content, calls);
@@ -54,25 +57,12 @@ fn add_ts_function_node_and_calls(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    nodes.push(GraphNode {
-        id: format!("{}#{}", path_str, label),
-        label: label.to_string(),
-        node_type: "function".to_string(),
-        val: Some(1.0),
-        color: None,
-        file_path: Some(path_str.to_string()),
-        line: Some(line),
-    });
+    nodes.push(make_function_node(path_str, label, line));
 
     let mut calls = Vec::new();
     extract_ts_calls(node, content, &mut calls);
     for callee in calls {
-        links.push(GraphLink {
-            source: label.to_string(),
-            target: callee,
-            link_type: "call".to_string(),
-            label: None,
-        });
+        links.push(make_call_link(label, &callee));
     }
 }
 
@@ -83,10 +73,9 @@ fn handle_ts_function(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else {
+    let Some(name) = child_field_text(child, "name", content) else {
         return;
     };
-    let name = &content[name_node.start_byte()..name_node.end_byte()];
     let line = child.start_position().row as u32 + 1;
     add_ts_function_node_and_calls(child, content, path_str, name, line, nodes, links);
 }
@@ -98,33 +87,24 @@ fn handle_ts_class(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else {
+    let Some(class_name) = child_field_text(child, "name", content) else {
         return;
     };
-    let class_name = &content[name_node.start_byte()..name_node.end_byte()];
-    nodes.push(GraphNode {
-        id: format!("{}#{}", path_str, class_name),
-        label: class_name.to_string(),
-        node_type: "class".to_string(),
-        val: Some(2.0),
-        color: None,
-        file_path: Some(path_str.to_string()),
-        line: Some(child.start_position().row as u32 + 1),
-    });
+    let class_line = child.start_position().row as u32 + 1;
+    nodes.push(make_class_node(path_str, class_name, class_line));
 
     let Some(body) = child.child_by_field_name("body") else {
         return;
     };
-    let mut body_cursor = body.walk();
-    for member in body.children(&mut body_cursor) {
+    let mut cursor = body.walk();
+    for member in body.children(&mut cursor) {
         if member.kind() != "method_definition" {
             continue;
         }
-        let Some(m_name) = member.child_by_field_name("name") else {
+        let Some(m_name) = child_field_text(member, "name", content) else {
             continue;
         };
-        let method_name = &content[m_name.start_byte()..m_name.end_byte()];
-        let method_label = format!("{}::{}", class_name, method_name);
+        let method_label = format!("{class_name}::{m_name}");
         let line = member.start_position().row as u32 + 1;
         add_ts_function_node_and_calls(
             member,
@@ -150,10 +130,9 @@ fn handle_ts_lexical_decl(
         if decl.kind() != "variable_declarator" {
             continue;
         }
-        let Some(name_node) = decl.child_by_field_name("name") else {
+        let Some(name) = child_field_text(decl, "name", content) else {
             continue;
         };
-        let name = &content[name_node.start_byte()..name_node.end_byte()];
         let value_node = decl.child_by_field_name("value");
         let line = decl.start_position().row as u32 + 1;
         let is_func = value_node
@@ -164,15 +143,7 @@ fn handle_ts_lexical_decl(
             let call_node = value_node.unwrap_or(decl);
             add_ts_function_node_and_calls(call_node, content, path_str, name, line, nodes, links);
         } else {
-            nodes.push(GraphNode {
-                id: format!("{}#{}", path_str, name),
-                label: name.to_string(),
-                node_type: "variable".to_string(),
-                val: Some(0.5),
-                color: None,
-                file_path: Some(path_str.to_string()),
-                line: Some(line),
-            });
+            nodes.push(make_variable_node(path_str, name, line));
         }
     }
 }
@@ -187,16 +158,9 @@ fn handle_ts_import(
     let Some(source_node) = child.child_by_field_name("source") else {
         return;
     };
-    let raw_source = &content[source_node.start_byte()..source_node.end_byte()];
-    let clean_source = raw_source.trim_matches(|c| c == '\'' || c == '"');
+    let clean_source = node_text(source_node, content).trim_matches(|c| c == '\'' || c == '"');
     let target_path = resolve_import_target(clean_source, file_path);
-
-    links.push(GraphLink {
-        source: path_str.to_string(),
-        target: target_path,
-        link_type: "import".to_string(),
-        label: None,
-    });
+    links.push(make_import_link(path_str, &target_path));
 }
 
 impl TypeScriptParser {
@@ -228,21 +192,7 @@ impl TypeScriptParser {
             .parse(content, None)
             .ok_or_else(|| "Failed to parse TypeScript code".to_string())?;
 
-        let mut nodes = Vec::new();
-        let mut links = Vec::new();
-        let path_str = file_path.to_string_lossy().to_string();
-
-        // Emit module node for file
-        nodes.push(GraphNode {
-            id: path_str.clone(),
-            label: path_str.clone(),
-            node_type: "module".to_string(),
-            val: Some(1.0),
-            color: None,
-            file_path: Some(path_str.clone()),
-            line: Some(1),
-        });
-
+        let (path_str, mut nodes, mut links) = init_parsed_graph(file_path);
         let root_node = tree.root_node();
         let mut cursor = root_node.walk();
 

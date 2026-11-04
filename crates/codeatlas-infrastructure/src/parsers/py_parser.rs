@@ -1,3 +1,7 @@
+use crate::parsers::ast_utils::{
+    child_field_text, init_parsed_graph, make_call_link, make_class_node, make_function_node,
+    make_import_link, node_text,
+};
 use codeatlas_domain::entities::graph::{GraphLink, GraphNode};
 use std::path::Path;
 use tree_sitter::Parser;
@@ -11,8 +15,7 @@ fn extract_py_calls<'a>(node: tree_sitter::Node<'a>, content: &'a str, calls: &m
     for child in node.children(&mut cursor) {
         if child.kind() == "call" {
             if let Some(func) = child.child_by_field_name("function") {
-                let callee = &content[func.start_byte()..func.end_byte()];
-                calls.push(callee.to_string());
+                calls.push(node_text(func, content).to_string());
             }
         }
         extract_py_calls(child, content, calls);
@@ -27,15 +30,6 @@ fn unwrap_decorated<'a>(node: tree_sitter::Node<'a>) -> tree_sitter::Node<'a> {
     }
 }
 
-fn emit_import_link(source: &str, target: &str, links: &mut Vec<GraphLink>) {
-    links.push(GraphLink {
-        source: source.to_string(),
-        target: target.to_string(),
-        link_type: "import".to_string(),
-        label: None,
-    });
-}
-
 fn add_py_function_node_and_calls(
     node: tree_sitter::Node<'_>,
     content: &str,
@@ -44,25 +38,13 @@ fn add_py_function_node_and_calls(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    nodes.push(GraphNode {
-        id: format!("{}#{}", path_str, label),
-        label: label.to_string(),
-        node_type: "function".to_string(),
-        val: Some(1.0),
-        color: None,
-        file_path: Some(path_str.to_string()),
-        line: Some(node.start_position().row as u32 + 1),
-    });
+    let line = node.start_position().row as u32 + 1;
+    nodes.push(make_function_node(path_str, label, line));
 
     let mut calls = Vec::new();
     extract_py_calls(node, content, &mut calls);
     for callee in calls {
-        links.push(GraphLink {
-            source: label.to_string(),
-            target: callee,
-            link_type: "call".to_string(),
-            label: None,
-        });
+        links.push(make_call_link(label, &callee));
     }
 }
 
@@ -73,10 +55,9 @@ fn handle_py_function(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else {
+    let Some(name) = child_field_text(child, "name", content) else {
         return;
     };
-    let name = &content[name_node.start_byte()..name_node.end_byte()];
     add_py_function_node_and_calls(child, content, path_str, name, nodes, links);
 }
 
@@ -87,19 +68,11 @@ fn handle_py_class(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else {
+    let Some(class_name) = child_field_text(child, "name", content) else {
         return;
     };
-    let class_name = &content[name_node.start_byte()..name_node.end_byte()];
-    nodes.push(GraphNode {
-        id: format!("{}#{}", path_str, class_name),
-        label: class_name.to_string(),
-        node_type: "class".to_string(),
-        val: Some(2.0),
-        color: None,
-        file_path: Some(path_str.to_string()),
-        line: Some(child.start_position().row as u32 + 1),
-    });
+    let line = child.start_position().row as u32 + 1;
+    nodes.push(make_class_node(path_str, class_name, line));
 
     let Some(body) = child.child_by_field_name("body") else {
         return;
@@ -110,11 +83,10 @@ fn handle_py_class(
         if member.kind() != "function_definition" {
             continue;
         }
-        let Some(m_name) = member.child_by_field_name("name") else {
+        let Some(method_name) = child_field_text(member, "name", content) else {
             continue;
         };
-        let method_name = &content[m_name.start_byte()..m_name.end_byte()];
-        let method_label = format!("{}::{}", class_name, method_name);
+        let method_label = format!("{class_name}::{method_name}");
         add_py_function_node_and_calls(member, content, path_str, &method_label, nodes, links);
     }
 }
@@ -125,9 +97,8 @@ fn handle_py_import(
     path_str: &str,
     links: &mut Vec<GraphLink>,
 ) {
-    if let Some(mod_node) = child.child_by_field_name("module_name") {
-        let mod_name = &content[mod_node.start_byte()..mod_node.end_byte()];
-        emit_import_link(path_str, mod_name, links);
+    if let Some(mod_name) = child_field_text(child, "module_name", content) {
+        links.push(make_import_link(path_str, mod_name));
         return;
     }
 
@@ -139,8 +110,7 @@ fn handle_py_import(
             _ => None,
         };
         if let Some(n) = name_node {
-            let mod_name = &content[n.start_byte()..n.end_byte()];
-            emit_import_link(path_str, mod_name, links);
+            links.push(make_import_link(path_str, node_text(n, content)));
         }
     }
 }
@@ -165,21 +135,7 @@ impl PythonParser {
             .parse(content, None)
             .ok_or_else(|| "Failed to parse Python code".to_string())?;
 
-        let mut nodes = Vec::new();
-        let mut links = Vec::new();
-        let path_str = file_path.to_string_lossy().to_string();
-
-        // Emit module node for file
-        nodes.push(GraphNode {
-            id: path_str.clone(),
-            label: path_str.clone(),
-            node_type: "module".to_string(),
-            val: Some(1.0),
-            color: None,
-            file_path: Some(path_str.clone()),
-            line: Some(1),
-        });
-
+        let (path_str, mut nodes, mut links) = init_parsed_graph(file_path);
         let root_node = tree.root_node();
         let mut cursor = root_node.walk();
 
