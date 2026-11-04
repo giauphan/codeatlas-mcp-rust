@@ -35,7 +35,8 @@ fn extract_class_name(decl: &str, trimmed: &str) -> Option<String> {
     if trimmed.contains("::class") {
         return None;
     }
-    if !decl.starts_with("class ") && !decl.starts_with("interface ") && !decl.starts_with("trait ") {
+    if !decl.starts_with("class ") && !decl.starts_with("interface ") && !decl.starts_with("trait ")
+    {
         return None;
     }
     let name = decl.split_whitespace().nth(1)?;

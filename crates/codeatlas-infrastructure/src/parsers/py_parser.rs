@@ -73,7 +73,9 @@ fn handle_py_function(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else { return };
+    let Some(name_node) = child.child_by_field_name("name") else {
+        return;
+    };
     let name = &content[name_node.start_byte()..name_node.end_byte()];
     add_py_function_node_and_calls(child, content, path_str, name, nodes, links);
 }
@@ -85,7 +87,9 @@ fn handle_py_class(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else { return };
+    let Some(name_node) = child.child_by_field_name("name") else {
+        return;
+    };
     let class_name = &content[name_node.start_byte()..name_node.end_byte()];
     nodes.push(GraphNode {
         id: format!("{}#{}", path_str, class_name),
@@ -97,14 +101,18 @@ fn handle_py_class(
         line: Some(child.start_position().row as u32 + 1),
     });
 
-    let Some(body) = child.child_by_field_name("body") else { return };
+    let Some(body) = child.child_by_field_name("body") else {
+        return;
+    };
     let mut body_cursor = body.walk();
     for raw_member in body.children(&mut body_cursor) {
         let member = unwrap_decorated(raw_member);
         if member.kind() != "function_definition" {
             continue;
         }
-        let Some(m_name) = member.child_by_field_name("name") else { continue };
+        let Some(m_name) = member.child_by_field_name("name") else {
+            continue;
+        };
         let method_name = &content[m_name.start_byte()..m_name.end_byte()];
         let method_label = format!("{}::{}", class_name, method_name);
         add_py_function_node_and_calls(member, content, path_str, &method_label, nodes, links);

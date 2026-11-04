@@ -306,9 +306,9 @@ impl ToolHandler for SetupSecondBrainHandler {
                     use std::os::unix::fs::DirBuilderExt;
                     builder.mode(0o700);
                 }
-                builder
-                    .create(&dir_clone)
-                    .map_err(|e| format!("Failed to create config directory {:?}: {}", dir_clone, e))?;
+                builder.create(&dir_clone).map_err(|e| {
+                    format!("Failed to create config directory {:?}: {}", dir_clone, e)
+                })?;
             }
 
             let mut open_opts = std::fs::OpenOptions::new();
@@ -319,13 +319,17 @@ impl ToolHandler for SetupSecondBrainHandler {
                 open_opts.mode(0o600);
             }
 
-            let mut file = open_opts
-                .open(&config_file_clone)
-                .map_err(|e| format!("Failed to create config file {:?}: {}", config_file_clone, e))?;
+            let mut file = open_opts.open(&config_file_clone).map_err(|e| {
+                format!(
+                    "Failed to create config file {:?}: {}",
+                    config_file_clone, e
+                )
+            })?;
 
             use std::io::Write;
-            file.write_all(serialized_clone.as_bytes())
-                .map_err(|e| format!("Failed to write config file {:?}: {}", config_file_clone, e))?;
+            file.write_all(serialized_clone.as_bytes()).map_err(|e| {
+                format!("Failed to write config file {:?}: {}", config_file_clone, e)
+            })?;
 
             Ok(())
         })

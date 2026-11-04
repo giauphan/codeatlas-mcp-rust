@@ -83,7 +83,9 @@ fn handle_ts_function(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else { return };
+    let Some(name_node) = child.child_by_field_name("name") else {
+        return;
+    };
     let name = &content[name_node.start_byte()..name_node.end_byte()];
     let line = child.start_position().row as u32 + 1;
     add_ts_function_node_and_calls(child, content, path_str, name, line, nodes, links);
@@ -96,7 +98,9 @@ fn handle_ts_class(
     nodes: &mut Vec<GraphNode>,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(name_node) = child.child_by_field_name("name") else { return };
+    let Some(name_node) = child.child_by_field_name("name") else {
+        return;
+    };
     let class_name = &content[name_node.start_byte()..name_node.end_byte()];
     nodes.push(GraphNode {
         id: format!("{}#{}", path_str, class_name),
@@ -108,17 +112,29 @@ fn handle_ts_class(
         line: Some(child.start_position().row as u32 + 1),
     });
 
-    let Some(body) = child.child_by_field_name("body") else { return };
+    let Some(body) = child.child_by_field_name("body") else {
+        return;
+    };
     let mut body_cursor = body.walk();
     for member in body.children(&mut body_cursor) {
         if member.kind() != "method_definition" {
             continue;
         }
-        let Some(m_name) = member.child_by_field_name("name") else { continue };
+        let Some(m_name) = member.child_by_field_name("name") else {
+            continue;
+        };
         let method_name = &content[m_name.start_byte()..m_name.end_byte()];
         let method_label = format!("{}::{}", class_name, method_name);
         let line = member.start_position().row as u32 + 1;
-        add_ts_function_node_and_calls(member, content, path_str, &method_label, line, nodes, links);
+        add_ts_function_node_and_calls(
+            member,
+            content,
+            path_str,
+            &method_label,
+            line,
+            nodes,
+            links,
+        );
     }
 }
 
@@ -134,13 +150,15 @@ fn handle_ts_lexical_decl(
         if decl.kind() != "variable_declarator" {
             continue;
         }
-        let Some(name_node) = decl.child_by_field_name("name") else { continue };
+        let Some(name_node) = decl.child_by_field_name("name") else {
+            continue;
+        };
         let name = &content[name_node.start_byte()..name_node.end_byte()];
         let value_node = decl.child_by_field_name("value");
         let line = decl.start_position().row as u32 + 1;
-        let is_func = value_node.as_ref().is_some_and(|v| {
-            v.kind() == "arrow_function" || v.kind() == "function_expression"
-        });
+        let is_func = value_node
+            .as_ref()
+            .is_some_and(|v| v.kind() == "arrow_function" || v.kind() == "function_expression");
 
         if is_func {
             let call_node = value_node.unwrap_or(decl);
@@ -166,7 +184,9 @@ fn handle_ts_import(
     file_path: &Path,
     links: &mut Vec<GraphLink>,
 ) {
-    let Some(source_node) = child.child_by_field_name("source") else { return };
+    let Some(source_node) = child.child_by_field_name("source") else {
+        return;
+    };
     let raw_source = &content[source_node.start_byte()..source_node.end_byte()];
     let clean_source = raw_source.trim_matches(|c| c == '\'' || c == '"');
     let target_path = resolve_import_target(clean_source, file_path);
