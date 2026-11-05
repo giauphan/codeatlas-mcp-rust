@@ -153,8 +153,8 @@ pub fn generate_mermaid_feature_flow(
     let mut count = 0;
 
     for link in &analysis.graph.links {
-        if link.source.to_lowercase().contains(&kw_lower)
-            || link.target.to_lowercase().contains(&kw_lower)
+        if codeatlas_domain::entities::utils::contains_ignore_case(&link.source, &kw_lower)
+            || codeatlas_domain::entities::utils::contains_ignore_case(&link.target, &kw_lower)
         {
             let clean_src = sanitize_mermaid_id(&link.source);
             let clean_tgt = sanitize_mermaid_id(&link.target);

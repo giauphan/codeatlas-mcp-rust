@@ -44,7 +44,7 @@ impl SearchCodeUseCase {
             .graph
             .nodes
             .into_iter()
-            .filter(|n| n.label.to_lowercase().contains(&q_lower))
+            .filter(|n| codeatlas_domain::entities::utils::contains_ignore_case(&n.label, &q_lower))
             .collect();
 
         Ok(matches)
