@@ -134,7 +134,16 @@ pub fn run_setup_zed(force: bool) -> anyhow::Result<()> {
     let zed_config = get_zed_config_path()?;
 
     if let Some(parent) = zed_config.parent() {
-        std::fs::create_dir_all(parent)?;
+        if !parent.exists() {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            builder.create(parent)?;
+        }
     }
 
     let mut root: Value = if zed_config.exists() {
@@ -200,7 +209,18 @@ pub fn run_setup_zed(force: bool) -> anyhow::Result<()> {
         println!("  ℹ Backed up existing settings to {}", backup.display());
         println!("  ⚠ Note: Existing inline comments are omitted in the updated JSON settings.");
     }
-    std::fs::write(&zed_config, updated_content)?;
+
+    let mut open_opts = std::fs::OpenOptions::new();
+    open_opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open_opts.mode(0o600);
+    }
+
+    let mut file = open_opts.open(&zed_config)?;
+    use std::io::Write;
+    file.write_all(updated_content.as_bytes())?;
 
     println!(
         "  ✓ Registered 'codeatlas' MCP context server into {}",

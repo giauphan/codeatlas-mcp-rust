@@ -52,7 +52,16 @@ pub fn run_setup_claude(force: bool) -> anyhow::Result<()> {
     let claude_config = get_claude_config_path()?;
 
     if let Some(parent) = claude_config.parent() {
-        std::fs::create_dir_all(parent)?;
+        if !parent.exists() {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            builder.create(parent)?;
+        }
     }
 
     let mut root: Value = if claude_config.exists() {
@@ -113,7 +122,18 @@ pub fn run_setup_claude(force: bool) -> anyhow::Result<()> {
         std::fs::copy(&claude_config, &backup)?;
         println!("  ℹ Backed up existing config to {}", backup.display());
     }
-    std::fs::write(&claude_config, updated_content)?;
+
+    let mut open_opts = std::fs::OpenOptions::new();
+    open_opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open_opts.mode(0o600);
+    }
+
+    let mut file = open_opts.open(&claude_config)?;
+    use std::io::Write;
+    file.write_all(updated_content.as_bytes())?;
 
     println!(
         "  ✓ Registered 'codeatlas' MCP server into {}",
