@@ -149,13 +149,24 @@ pub fn generate_mermaid_feature_flow(
     _max_depth: u32,
 ) -> String {
     let mut diagram = String::from("sequenceDiagram\n  autonumber\n");
-    let kw_lower = keyword.to_lowercase();
+    let kw_bytes = keyword.as_bytes();
     let mut count = 0;
 
+    // ⚡ Bolt Optimization: Use allocation-free case-insensitive substring matching
+    let is_match = |s: &str| -> bool {
+        if kw_bytes.is_empty() {
+            true
+        } else if s.len() < kw_bytes.len() {
+            false
+        } else {
+            s.as_bytes()
+                .windows(kw_bytes.len())
+                .any(|w| w.eq_ignore_ascii_case(kw_bytes))
+        }
+    };
+
     for link in &analysis.graph.links {
-        if link.source.to_lowercase().contains(&kw_lower)
-            || link.target.to_lowercase().contains(&kw_lower)
-        {
+        if is_match(&link.source) || is_match(&link.target) {
             let clean_src = sanitize_mermaid_id(&link.source);
             let clean_tgt = sanitize_mermaid_id(&link.target);
             diagram.push_str(&format!(
