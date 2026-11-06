@@ -39,12 +39,24 @@ impl SearchCodeUseCase {
             None => return Ok(Vec::new()),
         };
 
-        let q_lower = query.to_lowercase();
+        let q_bytes = query.as_bytes();
         let matches = analysis
             .graph
             .nodes
             .into_iter()
-            .filter(|n| n.label.to_lowercase().contains(&q_lower))
+            // ⚡ Bolt Optimization: Use allocation-free case-insensitive substring matching
+            .filter(|n| {
+                if q_bytes.is_empty() {
+                    true
+                } else if n.label.len() < q_bytes.len() {
+                    false
+                } else {
+                    n.label
+                        .as_bytes()
+                        .windows(q_bytes.len())
+                        .any(|w| w.eq_ignore_ascii_case(q_bytes))
+                }
+            })
             .collect();
 
         Ok(matches)
