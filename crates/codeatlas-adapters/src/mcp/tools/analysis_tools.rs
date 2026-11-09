@@ -394,7 +394,14 @@ impl ToolHandler for ExportTeamArtifactHandler {
         let project_path = std::path::Path::new(project_arg.unwrap_or("."));
         let dir = project_path.join(".codeatlas");
         if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
-            tokio::fs::create_dir_all(&dir)
+            let mut builder = tokio::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                builder.mode(0o700);
+            }
+            builder
+                .create(&dir)
                 .await
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
         }
@@ -415,7 +422,21 @@ impl ToolHandler for ExportTeamArtifactHandler {
         let json_data = serde_json::to_string_pretty(&payload)
             .map_err(|e| format!("Failed to serialize artifact: {}", e))?;
 
-        tokio::fs::write(&artifact_path, json_data)
+        let mut open_opts = tokio::fs::OpenOptions::new();
+        open_opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            open_opts.mode(0o600);
+        }
+        let mut f = open_opts
+            .open(&artifact_path)
+            .await
+            .map_err(|e| format!("Failed to write artifact: {}", e))?;
+        use tokio::io::AsyncWriteExt;
+        f.write_all(json_data.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write artifact: {}", e))?;
+        f.flush()
             .await
             .map_err(|e| format!("Failed to write artifact: {}", e))?;
 
