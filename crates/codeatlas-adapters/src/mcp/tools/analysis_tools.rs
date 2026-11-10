@@ -394,7 +394,7 @@ impl ToolHandler for ExportTeamArtifactHandler {
         let project_path = std::path::Path::new(project_arg.unwrap_or("."));
         let dir = project_path.join(".codeatlas");
         if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
-            tokio::fs::create_dir_all(&dir)
+            crate::outbound::fs_utils::create_secure_dir_all(&dir)
                 .await
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
         }
@@ -415,7 +415,7 @@ impl ToolHandler for ExportTeamArtifactHandler {
         let json_data = serde_json::to_string_pretty(&payload)
             .map_err(|e| format!("Failed to serialize artifact: {}", e))?;
 
-        tokio::fs::write(&artifact_path, json_data)
+        crate::outbound::fs_utils::write_secure_file(&artifact_path, json_data.as_bytes())
             .await
             .map_err(|e| format!("Failed to write artifact: {}", e))?;
 

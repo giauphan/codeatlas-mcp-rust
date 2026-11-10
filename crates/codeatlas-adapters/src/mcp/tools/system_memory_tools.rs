@@ -44,7 +44,7 @@ impl ToolHandler for SyncSystemMemoryHandler {
             Err(e) => return Err(e),
         };
         if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
-            tokio::fs::create_dir_all(&dir)
+            crate::outbound::fs_utils::create_secure_dir_all(&dir)
                 .await
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
         }
@@ -66,9 +66,11 @@ impl ToolHandler for SyncSystemMemoryHandler {
         }
 
         let tmp_file = dir.join(format!("system-flow.tmp.{}", std::process::id()));
-        tokio::fs::write(&tmp_file, &content)
+
+        crate::outbound::fs_utils::write_secure_file(&tmp_file, content.as_bytes())
             .await
             .map_err(|e| format!("Failed to write temporary memory file: {}", e))?;
+
         tokio::fs::rename(&tmp_file, &flow_file)
             .await
             .map_err(|e| format!("Failed to finalize memory file: {}", e))?;

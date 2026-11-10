@@ -1,4 +1,5 @@
 pub mod adr_fs_adapter;
+pub mod fs_utils;
 pub mod http_cloud_client;
 
 pub use adr_fs_adapter::AdrFileSystemAdapter;
