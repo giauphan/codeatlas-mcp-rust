@@ -149,13 +149,20 @@ pub fn generate_mermaid_feature_flow(
     _max_depth: u32,
 ) -> String {
     let mut diagram = String::from("sequenceDiagram\n  autonumber\n");
-    let kw_lower = keyword.to_lowercase();
+
+    // ⚡ Bolt Optimization: Replace .to_lowercase().contains() in the loop with a single
+    // pre-compiled case-insensitive regex. This avoids O(N) heap allocations for every link
+    // and improves search performance from naive O(N*M) to regex's O(N+M), while handling Unicode correctly.
+    let escaped_kw = regex::escape(keyword);
+    let re = regex::RegexBuilder::new(&escaped_kw)
+        .case_insensitive(true)
+        .build()
+        .unwrap_or_else(|_| regex::Regex::new("").unwrap());
+
     let mut count = 0;
 
     for link in &analysis.graph.links {
-        if link.source.to_lowercase().contains(&kw_lower)
-            || link.target.to_lowercase().contains(&kw_lower)
-        {
+        if re.is_match(&link.source) || re.is_match(&link.target) {
             let clean_src = sanitize_mermaid_id(&link.source);
             let clean_tgt = sanitize_mermaid_id(&link.target);
             diagram.push_str(&format!(
