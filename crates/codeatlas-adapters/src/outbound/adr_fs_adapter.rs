@@ -103,17 +103,46 @@ impl AdrRepositoryPort for AdrFileSystemAdapter {
         let safe_id = safe_segment(&adr.id)?;
 
         let dir = self.base_dir.join(safe_proj);
-        tokio::fs::create_dir_all(&dir)
-            .await
-            .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+
+        #[cfg(unix)]
+        {
+            let mut builder = tokio::fs::DirBuilder::new();
+            builder.recursive(true).mode(0o700);
+            builder
+                .create(&dir)
+                .await
+                .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+        }
 
         let file_path = dir.join(format!("{}.json", safe_id));
         let content = serde_json::to_string_pretty(&adr)
             .map_err(|e| AdrStorageError::Validation(e.to_string()))?;
 
-        tokio::fs::write(&file_path, content)
-            .await
-            .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut options = tokio::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true).mode(0o600);
+            let mut file = options
+                .open(&file_path)
+                .await
+                .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+            file.write_all(content.as_bytes())
+                .await
+                .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::fs::write(&file_path, content)
+                .await
+                .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+        }
 
         Ok(adr)
     }

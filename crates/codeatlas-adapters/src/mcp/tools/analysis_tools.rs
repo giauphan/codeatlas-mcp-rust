@@ -394,9 +394,21 @@ impl ToolHandler for ExportTeamArtifactHandler {
         let project_path = std::path::Path::new(project_arg.unwrap_or("."));
         let dir = project_path.join(".codeatlas");
         if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
-            tokio::fs::create_dir_all(&dir)
-                .await
-                .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
+            #[cfg(unix)]
+            {
+                let mut builder = tokio::fs::DirBuilder::new();
+                builder.recursive(true).mode(0o700);
+                builder
+                    .create(&dir)
+                    .await
+                    .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
+            }
+            #[cfg(not(unix))]
+            {
+                tokio::fs::create_dir_all(&dir)
+                    .await
+                    .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
+            }
         }
         let artifact_path = dir.join("artifact.json");
         let ts = std::time::SystemTime::now()
@@ -415,9 +427,25 @@ impl ToolHandler for ExportTeamArtifactHandler {
         let json_data = serde_json::to_string_pretty(&payload)
             .map_err(|e| format!("Failed to serialize artifact: {}", e))?;
 
-        tokio::fs::write(&artifact_path, json_data)
-            .await
-            .map_err(|e| format!("Failed to write artifact: {}", e))?;
+        #[cfg(unix)]
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut options = tokio::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true).mode(0o600);
+            let mut file = options
+                .open(&artifact_path)
+                .await
+                .map_err(|e| format!("Failed to open artifact file: {}", e))?;
+            file.write_all(json_data.as_bytes())
+                .await
+                .map_err(|e| format!("Failed to write artifact: {}", e))?;
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::fs::write(&artifact_path, json_data)
+                .await
+                .map_err(|e| format!("Failed to write artifact: {}", e))?;
+        }
 
         let res = json!({
             "status": "success",
