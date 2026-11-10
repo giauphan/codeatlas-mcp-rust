@@ -1,4 +1,5 @@
 pub mod doctor;
+pub mod jsonc_utils;
 pub mod router;
 pub mod setup_claude;
 pub mod setup_zed;
