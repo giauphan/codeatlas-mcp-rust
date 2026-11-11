@@ -103,7 +103,12 @@ impl AdrRepositoryPort for AdrFileSystemAdapter {
         let safe_id = safe_segment(&adr.id)?;
 
         let dir = self.base_dir.join(safe_proj);
-        tokio::fs::create_dir_all(&dir)
+        let mut builder = tokio::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        builder.mode(0o700);
+        builder
+            .create(&dir)
             .await
             .map_err(|e| AdrStorageError::Io(e.to_string()))?;
 
@@ -111,7 +116,17 @@ impl AdrRepositoryPort for AdrFileSystemAdapter {
         let content = serde_json::to_string_pretty(&adr)
             .map_err(|e| AdrStorageError::Validation(e.to_string()))?;
 
-        tokio::fs::write(&file_path, content)
+        let mut open_opts = tokio::fs::OpenOptions::new();
+        open_opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        open_opts.mode(0o600);
+
+        let mut file = open_opts
+            .open(&file_path)
+            .await
+            .map_err(|e| AdrStorageError::Io(e.to_string()))?;
+        use tokio::io::AsyncWriteExt;
+        file.write_all(content.as_bytes())
             .await
             .map_err(|e| AdrStorageError::Io(e.to_string()))?;
 

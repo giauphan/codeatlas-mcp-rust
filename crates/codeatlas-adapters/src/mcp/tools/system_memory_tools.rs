@@ -44,7 +44,12 @@ impl ToolHandler for SyncSystemMemoryHandler {
             Err(e) => return Err(e),
         };
         if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
-            tokio::fs::create_dir_all(&dir)
+            let mut builder = tokio::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            builder.mode(0o700);
+            builder
+                .create(&dir)
                 .await
                 .map_err(|e| format!("Failed to create directory {:?}: {}", dir, e))?;
         }
@@ -66,9 +71,20 @@ impl ToolHandler for SyncSystemMemoryHandler {
         }
 
         let tmp_file = dir.join(format!("system-flow.tmp.{}", std::process::id()));
-        tokio::fs::write(&tmp_file, &content)
+        let mut open_opts = tokio::fs::OpenOptions::new();
+        open_opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        open_opts.mode(0o600);
+
+        let mut file = open_opts
+            .open(&tmp_file)
+            .await
+            .map_err(|e| format!("Failed to create temporary memory file: {}", e))?;
+        use tokio::io::AsyncWriteExt;
+        file.write_all(content.as_bytes())
             .await
             .map_err(|e| format!("Failed to write temporary memory file: {}", e))?;
+
         tokio::fs::rename(&tmp_file, &flow_file)
             .await
             .map_err(|e| format!("Failed to finalize memory file: {}", e))?;
